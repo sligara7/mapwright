@@ -1,0 +1,28 @@
+mapwright
+Copyright (c) 2026 Anthony Sligar
+Licensed under the MIT License (see LICENSE).
+
+------------------------------------------------------------------------------
+Acknowledgements
+------------------------------------------------------------------------------
+
+mapwright's algorithms were implemented clean-room from the publicly described
+ideas and techniques of the following open-source projects. No source code was
+copied from them; this NOTICE credits the lineage of the techniques.
+
+* Azgaar's Fantasy-Map-Generator (MIT License)
+    https://github.com/Azgaar/Fantasy-Map-Generator
+    Ideas: jittered-grid Voronoi with Lloyd relaxation, flux-accumulation
+    rivers, temperature x precipitation -> biome matrix, Markov per-culture
+    name generation, single-seed determinism, SVG cartographic rendering.
+
+* "Generating fantasy maps" by Martin O'Leary (mewo2), and its C++ implementation
+  FantasyMapGenerator by Ryan L. Guy (rlguy) (Zlib License)
+    https://mewo2.com/notes/terrain/
+    https://github.com/rlguy/FantasyMapGenerator
+    Ideas: hydraulic + creep erosion (river * sqrt(flux) * slope + creep *
+    slope^2), Planchon-Darboux depression filling for guaranteed drainage,
+    slope-normal hillshade ("shaded relief") rendering.
+
+The name lists ("namebases") bundled with mapwright are original, hand-authored
+data, not derived from any third-party generator.
