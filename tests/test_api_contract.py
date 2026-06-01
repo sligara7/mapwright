@@ -30,6 +30,10 @@ EXPECTED_PUBLIC = {
     "compute_cell_polygons",
     "Marker",
     "RegionalSVGRenderer",
+    "Dungeon",
+    "DungeonConfig",
+    "DungeonGenerator",
+    "Rect",
 }
 
 

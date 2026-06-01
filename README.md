@@ -70,6 +70,7 @@ namer.region("dwarvish")      # -> 'The Korvald Reach'
 | `RegionalTerrainGenerator` | Voronoi cells (Lloyd-relaxed) → heightmap → Planchon–Darboux depression fill → flux + hydraulic/creep erosion → rivers → latitude/elevation climate → Whittaker biomes. |
 | `compute_cell_polygons` | Reconstructs convex Voronoi polygons (half-plane clipping) for vector rendering. |
 | `RegionalSVGRenderer` | Shaded-relief (hillshade) SVG: biome polygons, coastline, rivers, labelled markers. |
+| `DungeonGenerator` | BSP-partitioned rooms + minimum-spanning-tree corridors → rooms, corridor cells, and a walkable grid (with `Dungeon.ascii()`). |
 
 Everything is neutral: `RegionalTerrainGenerator` returns a `TerrainResult` of `TerrainCell`s
 (each with a `Biome`), and you decide how a `Biome` maps to your world.

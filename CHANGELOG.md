@@ -10,6 +10,15 @@ make breaking changes; these will always be noted here.
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-06-01
+
+### Added
+- **Dungeon generation** — `DungeonGenerator` → `Dungeon` (+ `DungeonConfig`, `Rect`):
+  BSP space-partitioning rooms (no overlap) connected by a Prim minimum-spanning-tree
+  of L-corridors, plus optional loop corridors. Returns rooms, carved corridor cells,
+  and a boolean walkable grid; `Dungeon.ascii()` for quick previews. Clean-room from
+  Dungeon-Generator (MIT, BSP) and donjuan (CC0, MST connectivity).
+
 ## [0.1.0] — 2026-06-01
 
 Initial release. Domain-neutral procedural fantasy map & world generation.

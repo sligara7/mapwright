@@ -25,6 +25,7 @@ Quickstart::
 """
 
 from .config import WorldMapConfig, PRESETS
+from .dungeon import Dungeon, DungeonConfig, DungeonGenerator, Rect
 from .names import NameGenerator, MarkovNameGenerator, NAMEBASES
 from .rng import SeededRNG
 from .svg_renderer import Marker, RegionalSVGRenderer
@@ -37,7 +38,7 @@ from .terrain import (
     compute_cell_polygons,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "SeededRNG",
@@ -54,4 +55,8 @@ __all__ = [
     "compute_cell_polygons",
     "Marker",
     "RegionalSVGRenderer",
+    "Dungeon",
+    "DungeonConfig",
+    "DungeonGenerator",
+    "Rect",
 ]
