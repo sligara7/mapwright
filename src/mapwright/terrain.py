@@ -41,6 +41,7 @@ from enum import IntEnum
 
 import numpy as np
 
+from .config import WorldMapConfig
 from .rng import SeededRNG
 
 
@@ -120,20 +121,28 @@ class RegionalTerrainGenerator:
         self,
         width: int,
         height: int,
+        config: WorldMapConfig | None = None,
         *,
-        sea_level: float = 0.32,
         cell_area: float = 6.0,
         relax_iterations: int = 2,
-        erosion_passes: int = 3,
-        river_threshold: float = 0.55,
     ) -> TerrainResult:
-        """Run the full pipeline and return terrain for a ``width×height`` grid."""
+        """Run the full pipeline and return terrain for a ``width×height`` grid.
+
+        ``config`` (a :class:`WorldMapConfig`) shapes the world — sea level,
+        number of continents, climate, mountains, rivers. ``cell_area`` and
+        ``relax_iterations`` are quality/detail dials independent of the world's
+        character. With no config a balanced single-continent world is produced.
+        """
+        cfg = config or WorldMapConfig()
+        sea_level = cfg.sea_level
+        erosion_passes = max(1, round(1 + cfg.roughness * 4))
+
         n_cells = int(np.clip(round(width * height / cell_area), 16, 1500))
         seeds = self._sample_seeds(width, height, n_cells)
         cell_of, seeds = self._voronoi(width, height, seeds, relax_iterations)
         cells = self._build_cells(seeds, cell_of)
 
-        self._init_heightmap(cells, width, height)
+        self._init_heightmap(cells, width, height, cfg)
         for cell in cells:
             cell.is_water = cell.height < sea_level
 
@@ -147,8 +156,8 @@ class RegionalTerrainGenerator:
         # Final hydrology pass for stable rivers, then climate + biomes.
         self._fill_depressions(cells, sea_level)
         self._compute_flux(cells)
-        rivers = self._trace_rivers(cells, river_threshold)
-        self._compute_climate(cells, width, height, sea_level)
+        rivers = self._trace_rivers(cells, cfg.river_density)
+        self._compute_climate(cells, width, height, sea_level, cfg)
         self._assign_biomes(cells, sea_level)
 
         return TerrainResult(
@@ -230,33 +239,53 @@ class RegionalTerrainGenerator:
 
     # -- 2. Heightmap primitives -----------------------------------------
 
-    def _init_heightmap(self, cells: list[TerrainCell], width: int, height: int) -> None:
+    def _init_heightmap(
+        self, cells: list[TerrainCell], width: int, height: int, cfg: WorldMapConfig
+    ) -> None:
         cx, cy = width / 2, height / 2
         diag = math.hypot(width, height)
-        h = np.zeros(len(cells))
         centroids = np.array([[c.cx, c.cy] for c in cells])
 
-        def add_hill(px: float, py: float, radius: float, amp: float) -> None:
+        def gaussian(px: float, py: float, radius: float, amp: float) -> np.ndarray:
             d2 = (centroids[:, 0] - px) ** 2 + (centroids[:, 1] - py) ** 2
-            nonlocal h
-            h = h + amp * np.exp(-d2 / (2 * radius * radius))
+            return amp * np.exp(-d2 / (2 * radius * radius))
 
-        # One broad central landmass...
-        add_hill(cx + self._rng.fuzzy(0, width * 0.1),
-                 cy + self._rng.fuzzy(0, height * 0.1),
-                 radius=diag * 0.28, amp=1.0)
-        # ...plus a handful of smaller hills/ranges for interest, kept inside
-        # the central region so they don't push the coastline off the map edge.
-        for _ in range(self._rng.randint(3, 6)):
-            add_hill(self._rng.uniform(0.18, 0.82) * width,
-                     self._rng.uniform(0.18, 0.82) * height,
-                     radius=diag * self._rng.uniform(0.07, 0.16),
-                     amp=self._rng.uniform(0.3, 0.7))
+        # Major landmasses. One ⇒ a central continent; several ⇒ blobs on a ring.
+        n = cfg.continents
+        major_radius = diag * 0.28 / (1 + 0.45 * (n - 1))
+        centers: list[tuple[float, float]] = []
+        if n == 1:
+            centers.append((cx + self._rng.fuzzy(0, width * 0.1),
+                            cy + self._rng.fuzzy(0, height * 0.1)))
+        else:
+            ring = cfg.continent_spread * min(width, height) * 0.42
+            for i in range(n):
+                ang = 2 * math.pi * i / n + self._rng.fuzzy(0, 0.5)
+                centers.append((cx + ring * math.cos(ang) + self._rng.fuzzy(0, width * 0.06),
+                                cy + ring * math.sin(ang) + self._rng.fuzzy(0, height * 0.06)))
+
+        # Combine landmasses with MAX (not sum) so adjacent continents don't form
+        # additive land-bridges between them — that's what makes islands islands.
+        h = np.zeros(len(cells))
+        for px, py in centers:
+            amp = 1.0 if n == 1 else self._rng.uniform(0.8, 1.0)
+            h = np.maximum(h, gaussian(px, py, major_radius, amp))
+
+        # Hills/ranges — count and height scale with mountain_density. Anchored
+        # to a landmass and *added* on top, so they decorate continents.
+        n_small = round(2 + cfg.mountain_density * 8)
+        spread = major_radius * 0.55  # keep ranges on their landmass (no bridging)
+        for _ in range(n_small):
+            bx, by = self._rng.choice(centers)
+            h = h + gaussian(bx + self._rng.fuzzy(0, spread),
+                             by + self._rng.fuzzy(0, spread),
+                             radius=diag * self._rng.uniform(0.06, 0.16),
+                             amp=self._rng.uniform(0.2, 0.35 + cfg.mountain_density * 0.5))
 
         # Radial edge falloff: push the map border below sea level so the map
-        # reads as a continent ringed by sea (and gives real coastlines).
+        # reads as land ringed by sea (and gives real coastlines).
         d_edge = np.sqrt((centroids[:, 0] - cx) ** 2 + (centroids[:, 1] - cy) ** 2) / (diag / 2)
-        h = h - np.clip((d_edge - 0.45) / 0.55, 0, 1) * 1.15
+        h = h - np.clip((d_edge - 0.45) / 0.55, 0, 1) * (1.15 * cfg.edge_falloff)
 
         # Normalise to 0..1.
         h = h - h.min()
@@ -326,20 +355,23 @@ class RegionalTerrainGenerator:
     # -- 5. Rivers -------------------------------------------------------
 
     @staticmethod
-    def _trace_rivers(cells: list[TerrainCell], threshold_frac: float) -> list[River]:
+    def _trace_rivers(cells: list[TerrainCell], river_density: float) -> list[River]:
         """Trace downhill polylines from genuine high-flux river sources.
 
-        Rivers must be *rare* — only the trunk streams that have gathered real
-        drainage. We pick sources above a high flux quantile (with an absolute
-        floor so small maps don't over-river), follow each to the sea, and only
-        then mark the cells of kept rivers as ``is_river`` — so short, spurious
-        paths never paint the interior blue.
+        Rivers are *rare* — only trunk streams that gathered real drainage. We
+        pick sources above a flux quantile (with an absolute floor so small maps
+        don't over-river), follow each to the sea, and only then mark the cells
+        of kept rivers as ``is_river`` — so short, spurious paths never paint the
+        interior blue. ``river_density`` (0..1) lowers both the quantile and the
+        floor so more, smaller rivers appear.
         """
-        land_flux = [c.flux for c in cells if not c.is_water]
-        if not land_flux:
+        land = [c for c in cells if not c.is_water]
+        if not land:
             return []
-        # High bar for a "source"; floor scales with basin size.
-        cutoff = max(float(np.quantile(land_flux, 0.90)), 0.04 * len(cells), 6.0)
+        # A source needs accumulated flux above a threshold that scales with map
+        # size (so big maps aren't flooded) and shrinks with river_density, so
+        # higher density ⇒ lower bar ⇒ more (and smaller) rivers.
+        cutoff = max(5.0, (0.10 - 0.075 * river_density) * len(cells))
         rivers: list[River] = []
         used: set[int] = set()
         sources = sorted(
@@ -366,15 +398,17 @@ class RegionalTerrainGenerator:
     # -- 6. Climate ------------------------------------------------------
 
     def _compute_climate(
-        self, cells: list[TerrainCell], width: int, height: int, sea_level: float
+        self, cells: list[TerrainCell], width: int, height: int, sea_level: float,
+        cfg: WorldMapConfig,
     ) -> None:
         # Temperature: warm band at a randomly placed "equator" latitude, minus
-        # an elevation lapse rate so peaks are cold.
+        # an elevation lapse rate so peaks are cold, plus a global config bias.
         equator = self._rng.uniform(0.35, 0.65)
         for c in cells:
             lat = c.cy / max(1, height - 1)
             temp = 1.0 - 2.0 * abs(lat - equator)
             temp -= 0.6 * max(0.0, c.height - sea_level)  # lapse with elevation
+            temp += cfg.temperature                        # global bias
             c.temperature = float(np.clip(temp + self._rng.fuzzy(0, 0.05), 0.0, 1.0))
 
         # Moisture: multi-source BFS hop-distance from water over the cell graph,
@@ -396,6 +430,7 @@ class RegionalTerrainGenerator:
             base = math.exp(-dist[c.id] / scale)
             if c.is_river:
                 base = min(1.0, base + 0.35)
+            base += cfg.moisture * 0.5  # global bias
             c.moisture = float(np.clip(base + self._rng.fuzzy(0, 0.05), 0.0, 1.0))
 
     # -- 7. Biome assignment ---------------------------------------------

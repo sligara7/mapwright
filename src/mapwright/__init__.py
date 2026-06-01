@@ -24,6 +24,7 @@ Quickstart::
     svg = RegionalSVGRenderer().render(terrain)
 """
 
+from .config import WorldMapConfig, PRESETS
 from .names import NameGenerator, MarkovNameGenerator, NAMEBASES
 from .rng import SeededRNG
 from .svg_renderer import Marker, RegionalSVGRenderer
@@ -40,6 +41,8 @@ __version__ = "0.1.0"
 
 __all__ = [
     "SeededRNG",
+    "WorldMapConfig",
+    "PRESETS",
     "NameGenerator",
     "MarkovNameGenerator",
     "NAMEBASES",

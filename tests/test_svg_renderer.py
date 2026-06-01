@@ -58,8 +58,16 @@ class TestSVGRender:
         assert svg.count("<polygon") > 20
 
     def test_renders_rivers_when_present(self):
-        t = _terrain(seed=17, w=48, h=40)
-        assert len(t.rivers) > 0  # this seed produces rivers
+        from mapwright import WorldMapConfig
+        # Find a seed that yields rivers (robust to terrain-model tuning).
+        wet = WorldMapConfig(river_density=0.95)
+        t = next(
+            (RegionalTerrainGenerator(SeededRNG(s)).generate(60, 44, config=wet)
+             for s in range(40)
+             if RegionalTerrainGenerator(SeededRNG(s)).generate(60, 44, config=wet).rivers),
+            None,
+        )
+        assert t is not None and t.rivers
         svg = RegionalSVGRenderer().render(t)
         assert "<path" in svg
 

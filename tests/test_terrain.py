@@ -97,8 +97,9 @@ class TestTerrainRealism:
 
 class TestParameters:
     def test_higher_sea_level_means_more_water(self):
-        low = _gen(5, 30, 30, sea_level=0.2)
-        high = _gen(5, 30, 30, sea_level=0.5)
+        from mapwright.config import WorldMapConfig
+        low = _gen(5, 30, 30, config=WorldMapConfig(sea_level=0.2))
+        high = _gen(5, 30, 30, config=WorldMapConfig(sea_level=0.5))
         low_water = sum(c.is_water for c in low.cells)
         high_water = sum(c.is_water for c in high.cells)
         assert high_water > low_water

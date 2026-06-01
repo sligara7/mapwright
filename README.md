@@ -33,6 +33,23 @@ svg = RegionalSVGRenderer().render(terrain, markers)
 open("world.svg", "w").write(svg)
 ```
 
+Shape the world with `WorldMapConfig` — or describe it and let an LLM fill the config:
+
+```python
+from mapwright import WorldMapConfig, RegionalTerrainGenerator, SeededRNG
+
+desert = WorldMapConfig.preset("desert")          # ready-made worlds...
+custom = WorldMapConfig(continents=7, sea_level=0.55, temperature=-0.8)  # ...or tune
+world  = RegionalTerrainGenerator(SeededRNG(1)).generate(60, 40, config=desert)
+
+# Every field is a bounded scalar with a clear meaning, so it doubles as a schema
+# a host app (or an LLM) can populate. from_dict clamps junk to valid ranges:
+WorldMapConfig.from_dict({"temperature": 5, "continents": -3})  # -> safe, clamped
+```
+
+Presets: `continent`, `pangaea`, `archipelago`, `islands`, `highlands`, `desert`,
+`arctic`, `tropical`.
+
 Procedural place-names in several culture styles:
 
 ```python
