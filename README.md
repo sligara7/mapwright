@@ -80,6 +80,22 @@ Every generator draws from a `SeededRNG`. The same seed (and parameters) reprodu
 identical world — terrain, names, rivers, and SVG — across runs *and across processes*
 (the Markov chains are built in sorted order, so output never depends on `PYTHONHASHSEED`).
 
+## API stability & contract
+
+The **public API is exactly the names exported in `mapwright.__all__`** — that's
+the contract. It's pinned by `tests/test_api_contract.py` (public surface, key
+signatures), so an accidental breaking change fails CI.
+
+For the world parameters specifically, `WorldMapConfig.json_schema()` returns a
+JSON Schema (draft 2020-12) — the machine-readable contract a host app or LLM can
+validate/generate against, then feed through `WorldMapConfig.from_dict()` (which
+clamps to valid ranges). Schema and runtime clamping are generated from the same
+field spec, so they can't drift.
+
+Versioning follows [SemVer](https://semver.org/). While at `0.x` the API may still
+change between minor versions; every change is recorded in `CHANGELOG.md`. Pin a
+tag or commit if you depend on it.
+
 ## Development
 
 ```bash

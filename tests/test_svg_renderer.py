@@ -2,7 +2,6 @@
 
 import xml.etree.ElementTree as ET
 
-import pytest
 
 from mapwright.rng import SeededRNG
 from mapwright.svg_renderer import Marker, RegionalSVGRenderer

@@ -1,8 +1,6 @@
 """Unit tests for the regional Voronoi/erosion/biome terrain generator."""
 
-import math
 
-import pytest
 
 from mapwright.rng import SeededRNG
 from mapwright.terrain import RegionalTerrainGenerator

@@ -21,6 +21,31 @@ def _clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, value))
 
 
+# Single source of truth for every knob: (name, type, min, max, description).
+# Drives both __post_init__ clamping and json_schema(), so the validation
+# behaviour and the published contract can never disagree.
+_SPEC: list[tuple] = [
+    ("sea_level", float, 0.05, 0.9,
+     "Fraction of the height range below water. Higher = more ocean."),
+    ("continents", int, 1, 24,
+     "Number of major landmasses. 1 = single continent; 4-8 = archipelago."),
+    ("continent_spread", float, 0.0, 1.0,
+     "0 = landmasses cluster at the centre; 1 = pushed toward the edges."),
+    ("edge_falloff", float, 0.0, 2.0,
+     "0 = land may reach the map border; 1 = strong 'ringed by sea' coastline."),
+    ("mountain_density", float, 0.0, 1.0,
+     "Abundance and height of hills/ranges."),
+    ("roughness", float, 0.0, 1.0,
+     "Terrain detail (number of erosion passes)."),
+    ("temperature", float, -1.0, 1.0,
+     "Global temperature bias: -1 frozen .. +1 scorching."),
+    ("moisture", float, -1.0, 1.0,
+     "Global moisture bias: -1 arid .. +1 drowned."),
+    ("river_density", float, 0.0, 1.0,
+     "How readily rivers are traced; more = more, smaller rivers."),
+]
+
+
 @dataclass
 class WorldMapConfig:
     """Knobs for :meth:`RegionalTerrainGenerator.generate`. Defaults = baseline."""
@@ -53,15 +78,9 @@ class WorldMapConfig:
 
     def __post_init__(self) -> None:
         # Clamp everything so out-of-range inputs (e.g. from an LLM) are safe.
-        self.sea_level = _clamp(self.sea_level, 0.05, 0.9)
-        self.continents = int(_clamp(self.continents, 1, 24))
-        self.continent_spread = _clamp(self.continent_spread, 0.0, 1.0)
-        self.edge_falloff = _clamp(self.edge_falloff, 0.0, 2.0)
-        self.mountain_density = _clamp(self.mountain_density, 0.0, 1.0)
-        self.roughness = _clamp(self.roughness, 0.0, 1.0)
-        self.temperature = _clamp(self.temperature, -1.0, 1.0)
-        self.moisture = _clamp(self.moisture, -1.0, 1.0)
-        self.river_density = _clamp(self.river_density, 0.0, 1.0)
+        for name, typ, lo, hi, _desc in _SPEC:
+            value = _clamp(getattr(self, name), lo, hi)
+            setattr(self, name, int(value) if typ is int else float(value))
 
     # -- serialisation / interop ----------------------------------------
 
@@ -73,6 +92,35 @@ class WorldMapConfig:
         """Build from a (possibly partial / noisy) mapping; unknown keys ignored."""
         known = {f.name for f in fields(cls)}
         return cls(**{k: v for k, v in data.items() if k in known})
+
+    @classmethod
+    def json_schema(cls) -> dict:
+        """A JSON Schema (draft 2020-12) describing this config.
+
+        This is mapwright's machine-readable **contract** for world parameters:
+        a host app or an LLM can validate/generate payloads against it, then feed
+        them through :meth:`from_dict` (which additionally clamps). Generated from
+        the same field spec used for clamping, so schema and behaviour can't drift.
+        """
+        defaults = cls()
+        properties = {
+            name: {
+                "type": "integer" if typ is int else "number",
+                "minimum": lo,
+                "maximum": hi,
+                "default": getattr(defaults, name),
+                "description": desc,
+            }
+            for name, typ, lo, hi, desc in _SPEC
+        }
+        return {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "title": "WorldMapConfig",
+            "description": "Parameters that shape a mapwright world.",
+            "type": "object",
+            "additionalProperties": False,
+            "properties": properties,
+        }
 
     # -- presets (also demonstrate the knobs & seed LLM choices) --------
 
