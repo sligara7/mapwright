@@ -80,6 +80,16 @@ _ROAD_CASING = (245, 238, 222)     # pale casing so roads read over any biome
 _REGION_BORDER = (120, 36, 44)     # political boundary (dark crimson)
 _REGION_LABEL = (74, 24, 30)
 
+# Tron-neon render theme (proof-of-concept): dark void + glowing cyan grid.
+_TRON_BG = (3, 6, 16)
+_TRON_OCEAN = (6, 12, 26)
+_TRON_LAND = (10, 20, 40)
+_TRON_HIGH = (22, 44, 78)          # hills/mountains read brighter
+_TRON_EDGE = "#2bd6ff"             # the glowing Voronoi grid
+_TRON_COAST = "#bff3ff"
+_TRON_RIVER = "#46ecff"
+_TRON_MARK = "#ff4fd8"             # magenta points of interest
+
 _SETTLEMENT_RADIUS = {
     "settlement_city": 5.5,
     "settlement_town": 4.0,
@@ -102,12 +112,16 @@ def _rgb(c: tuple[int, int, int]) -> str:
 class RegionalSVGRenderer:
     """Renders a :class:`TerrainResult` to an SVG document string."""
 
-    def __init__(self, scale: float = 16.0, relief_strength: float = 60.0):
+    def __init__(self, scale: float = 16.0, relief_strength: float = 60.0,
+                 theme: str = "parchment"):
         # scale = pixels per tile-unit; relief_strength exaggerates slope so the
         # hillshade reads on gentle terrain (height diffs between cells are tiny,
-        # so this needs to be large).
+        # so this needs to be large). ``theme`` selects the visual style:
+        # "parchment" (default, shaded-relief cartography) or "tron" (a neon
+        # proof-of-concept render theme over the same data).
         self.scale = scale
         self.relief_strength = relief_strength
+        self.theme = theme
         # Light from the upper-left (classic cartographic convention).
         lx, ly, lz = -1.0, -1.0, 1.4
         norm = math.sqrt(lx * lx + ly * ly + lz * lz)
@@ -123,6 +137,8 @@ class RegionalSVGRenderer:
         show_relief: bool = True,
         show_labels: bool = True,
     ) -> str:
+        if self.theme == "tron":
+            return self._render_tron(terrain, markers, roads, show_labels)
         s = self.scale
         w_px, h_px = terrain.width * s, terrain.height * s
         polys = compute_cell_polygons(terrain.cells, terrain.width, terrain.height)
@@ -168,6 +184,69 @@ class RegionalSVGRenderer:
         parts.append("</svg>")
         return "".join(parts)
 
+    # -- tron-neon theme (proof-of-concept) ------------------------------
+
+    def _render_tron(self, terrain: TerrainResult, markers, roads, show_labels: bool) -> str:
+        """A neon render theme over the *same* terrain data — dark void, glowing
+        Voronoi grid, neon coastlines/rivers. Demonstrates that mapwright's neutral
+        output can be re-skinned into a wholly different world aesthetic."""
+        s = self.scale
+        w_px, h_px = terrain.width * s, terrain.height * s
+        polys = compute_cell_polygons(terrain.cells, terrain.width, terrain.height)
+
+        def fill(biome: Biome) -> str:
+            if biome in (Biome.OCEAN, Biome.COAST):
+                return _rgb(_TRON_OCEAN)
+            if biome in (Biome.HILLS, Biome.MOUNTAIN, Biome.SNOW):
+                return _rgb(_TRON_HIGH)
+            return _rgb(_TRON_LAND)
+
+        parts: list[str] = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{w_px:.0f}" '
+            f'height="{h_px:.0f}" viewBox="0 0 {w_px:.0f} {h_px:.0f}">',
+            '<defs><filter id="tronGlow" x="-60%" y="-60%" width="220%" height="220%">'
+            '<feGaussianBlur stdDeviation="2.4" result="b"/><feMerge>'
+            '<feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>',
+            f'<rect width="{w_px:.0f}" height="{h_px:.0f}" fill="{_rgb(_TRON_BG)}"/>',
+        ]
+        # Dark cells with a glowing neon grid (the signature Tron look).
+        parts.append(f'<g stroke="{_TRON_EDGE}" stroke-width="0.6" stroke-opacity="0.5" '
+                     'stroke-linejoin="round">')
+        for cell in terrain.cells:
+            poly = polys.get(cell.id)
+            if not poly or len(poly) < 3:
+                continue
+            pts = " ".join(f"{x * s:.1f},{y * s:.1f}" for x, y in poly)
+            parts.append(f'<polygon points="{pts}" fill="{fill(cell.biome)}"/>')
+        parts.append("</g>")
+
+        coast = self._coastline_svg(terrain, polys, color=_TRON_COAST, width=1.4)
+        if coast:
+            parts.append(f'<g filter="url(#tronGlow)">{coast}</g>')
+        rivers = self._rivers_svg(terrain, color=_TRON_RIVER)
+        if rivers:
+            parts.append(f'<g filter="url(#tronGlow)">{rivers}</g>')
+        if roads:
+            d = " ".join(
+                "M" + " L".join(f"{terrain.cells[i].cx * s:.1f},{terrain.cells[i].cy * s:.1f}"
+                                for i in r.cells)
+                for r in roads if len(r.cells) >= 2)
+            if d.strip():
+                parts.append(f'<g filter="url(#tronGlow)"><path d="{d}" fill="none" '
+                             f'stroke="{_TRON_EDGE}" stroke-width="1.4" stroke-dasharray="4,3"/></g>')
+        if markers:
+            parts.append('<g filter="url(#tronGlow)" font-family="monospace" '
+                         f'fill="{_TRON_MARK}">')
+            for m in markers:
+                mx, my = m.x * s, m.y * s
+                parts.append(f'<circle cx="{mx:.1f}" cy="{my:.1f}" r="3"/>')
+                if show_labels and m.name:
+                    parts.append(f'<text x="{mx + 5:.1f}" y="{my + 3:.1f}" font-size="9" '
+                                 f'fill="{_TRON_COAST}">{su.escape(m.name)}</text>')
+            parts.append("</g>")
+        parts.append("</svg>")
+        return "".join(parts)
+
     # -- relief ----------------------------------------------------------
 
     def _relief(self, cells: list[TerrainCell]) -> dict[int, float]:
@@ -206,8 +285,10 @@ class RegionalSVGRenderer:
 
     # -- coastline -------------------------------------------------------
 
-    def _coastline_svg(self, terrain: TerrainResult, polys) -> str:
+    def _coastline_svg(self, terrain: TerrainResult, polys,
+                       color: Optional[str] = None, width: float = 2.0) -> str:
         s = self.scale
+        stroke = color if color is not None else _rgb(_COASTLINE)
         cells = terrain.cells
         segs: list[str] = []
         eps = 1e-6
@@ -235,8 +316,8 @@ class RegionalSVGRenderer:
                                 f'L{b[0] * s:.1f},{b[1] * s:.1f}')
         if not segs:
             return ""
-        return (f'<path d="{" ".join(segs)}" fill="none" stroke="{_rgb(_COASTLINE)}" '
-                f'stroke-width="2.0" stroke-linecap="round"/>')
+        return (f'<path d="{" ".join(segs)}" fill="none" stroke="{stroke}" '
+                f'stroke-width="{width:.1f}" stroke-linecap="round"/>')
 
     # -- regions ---------------------------------------------------------
 
@@ -297,9 +378,10 @@ class RegionalSVGRenderer:
 
     # -- rivers ----------------------------------------------------------
 
-    def _rivers_svg(self, terrain: TerrainResult) -> str:
+    def _rivers_svg(self, terrain: TerrainResult, color: Optional[str] = None) -> str:
         s = self.scale
         cells = terrain.cells
+        stroke = color if color is not None else _rgb(_RIVER_COLOR)
         paths: list[str] = []
         for river in terrain.rivers:
             if len(river.cells) < 2:
@@ -307,7 +389,7 @@ class RegionalSVGRenderer:
             pts = [(cells[i].cx * s, cells[i].cy * s) for i in river.cells]
             d = "M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in pts)
             width = max(0.8, min(4.0, 0.4 * river.width))
-            paths.append(f'<path d="{d}" fill="none" stroke="{_rgb(_RIVER_COLOR)}" '
+            paths.append(f'<path d="{d}" fill="none" stroke="{stroke}" '
                          f'stroke-width="{width:.1f}" stroke-linecap="round" '
                          f'stroke-linejoin="round"/>')
         if not paths:
