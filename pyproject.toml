@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mapwright"
-version = "0.15.0"
+version = "0.16.0"
 description = "Domain-neutral procedural fantasy map & world generation: Voronoi terrain, hydraulic erosion, biomes, rivers, Markov place-names, and shaded-relief SVG."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -31,7 +31,10 @@ classifiers = [
 dependencies = ["numpy>=1.26"]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.4", "ruff>=0.1", "hypothesis>=6"]
+# Atlas (hand-drawn / themed) rendering stamps PNG symbols → needs Pillow. The
+# core stays numpy-only; install this extra for AtlasRenderer.
+atlas = ["pillow>=10"]
+dev = ["pytest>=7.4", "ruff>=0.1", "hypothesis>=6", "pillow>=10"]
 
 [project.urls]
 Homepage = "https://github.com/sligara7/mapwright"

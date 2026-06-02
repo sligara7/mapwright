@@ -28,3 +28,4 @@ htmlcov/
 
 # Local working notes (roadmap, scratch)
 *.local.md
+memory/

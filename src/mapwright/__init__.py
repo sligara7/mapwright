@@ -24,6 +24,7 @@ Quickstart::
     svg = RegionalSVGRenderer().render(terrain)
 """
 
+from .atlas_renderer import ArtPack, AtlasRenderer
 from .config import WorldMapConfig, PRESETS
 from .dungeon import Dungeon, DungeonConfig, DungeonGenerator, Rect
 from .dungeon_renderer import DungeonSVGRenderer
@@ -53,7 +54,7 @@ from .terrain import (
     compute_cell_polygons,
 )
 
-__version__ = "0.15.0"
+__version__ = "0.16.0"
 
 __all__ = [
     "SeededRNG",
@@ -71,6 +72,8 @@ __all__ = [
     "compute_cell_polygons",
     "Marker",
     "RegionalSVGRenderer",
+    "ArtPack",
+    "AtlasRenderer",
     "Road",
     "RegionalRoadGenerator",
     "Region",

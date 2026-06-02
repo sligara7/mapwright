@@ -8,6 +8,25 @@ All notable changes to mapwright are documented here. The format follows
 `tests/test_api_contract.py`). While the version is `0.x`, minor versions may
 make breaking changes; these will always be noted here.
 
+## [0.16.0] — 2026-06-02
+
+### Added
+- **`AtlasRenderer` + `ArtPack` — hand-drawn / themed atlas rendering.** A new
+  optional renderer that stamps symbol images from an external *art pack* onto a
+  `TerrainResult` to produce a hand-drawn (or any-style) fantasy-map look:
+  mountains (young/mid/old by `land_age`), hills, forests (pine/deciduous/cactus
+  by climate), dunes, settlements (by marker kind), and sea decorations + a
+  compass rose. mapwright ships **no art** — an art pack is a directory of PNG
+  symbols plus an optional `manifest.json` that maps mapwright's neutral concepts
+  (`Biome`, `land_age`, settlement size) onto art "slots"; a host (e.g. an
+  image-generation service) produces packs in any style and this renderer just
+  places them. `ArtPack.from_directory()` reads a manifest, or auto-discovers
+  slots from a conventional (Nortantis-style) folder layout. Missing fine-grained
+  slots fall back to a coarser sibling, so partial packs still work. Requires
+  Pillow — install the optional extra: `pip install "mapwright[atlas]"`. The
+  core library stays numpy-only; without Pillow, `import mapwright` is unaffected
+  and only `AtlasRenderer` rendering raises a clear install hint.
+
 ## [0.15.0] — 2026-06-02
 
 ### Added

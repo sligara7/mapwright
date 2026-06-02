@@ -61,6 +61,8 @@ Regenerate them with `python examples/gallery.py` (SVGs always; PNGs when
 
 ```bash
 pip install mapwright
+# hand-drawn / themed atlas rendering (adds Pillow):
+pip install "mapwright[atlas]"
 # latest from git:
 pip install git+https://github.com/sligara7/mapwright.git
 # or, for local development:
@@ -169,6 +171,7 @@ Settlement presets: `hamlet`, `village`, `town`, `city`, `port`, `citadel`.
 | `RegionalTerrainGenerator` | Voronoi cells (Lloyd-relaxed) → **tectonic-plate** heightmap (organic coasts + mountain ranges at plate collisions; percentile sea level) → Planchon–Darboux depression fill → flux + hydraulic/creep erosion → rivers + inland lakes → latitude/elevation climate with **rain-shadow** → Whittaker biomes. |
 | `compute_cell_polygons` | Reconstructs convex Voronoi polygons (half-plane clipping) for vector rendering. |
 | `RegionalSVGRenderer` | Shaded-relief (hillshade) SVG: biome polygons, coastline, rivers, roads, labelled markers. |
+| `AtlasRenderer` / `ArtPack` | Hand-drawn / themed PNG: stamps symbols from an external *art pack* (mountains, forests, hills, settlements, sea decorations) onto the terrain. mapwright ships no art — a pack is a skin. Needs `pip install "mapwright[atlas]"`. |
 | `RegionalRoadGenerator` | Connects settlement sites with trade routes — an MST whose edges are A*-routed over the terrain (avoids sea, climbs/crosses rivers at a cost). |
 | `RegionGenerator` | Partitions land into named factions/territories: spread capitals seed a flood fill over the land graph (sea divides them); each `Region` is Markov-named. |
 | `DungeonGenerator` | BSP-partitioned rooms + minimum-spanning-tree corridors → rooms, corridor cells, and a walkable grid (with `Dungeon.ascii()`). |
@@ -178,6 +181,56 @@ Settlement presets: `hamlet`, `village`, `town`, `city`, `port`, `citadel`.
 
 Everything is neutral: `RegionalTerrainGenerator` returns a `TerrainResult` of `TerrainCell`s
 (each with a `Biome`), and you decide how a `Biome` maps to your world.
+
+## Atlas rendering & art packs
+
+`RegionalSVGRenderer` draws a clean shaded-relief map. For a **hand-drawn** (or neon, or
+scrap-metal, or any) look, `AtlasRenderer` stamps little symbol images — mountains, trees,
+hills, towns, sea monsters, a compass — placed exactly where the physics put them.
+
+mapwright bundles **no art**. The renderer is the *engine*; the art is a separate **art pack**
+you point it at, so the same world can wear any style without re-generating anything:
+
+```python
+from mapwright import SeededRNG, RegionalTerrainGenerator, ArtPack, AtlasRenderer, Marker
+
+terrain = RegionalTerrainGenerator(SeededRNG(7)).generate(80, 56)
+markers = [Marker("Eldmoor", 40, 28, kind="settlement_castle")]
+
+pack = ArtPack.from_directory("path/to/my-art-pack")   # needs mapwright[atlas]
+png = AtlasRenderer(pack, scale=12, seed=7).render(terrain, markers, land_age=0.3)
+open("atlas.png", "wb").write(png)
+```
+
+An **art pack** is just a directory of transparent PNG symbols plus an optional
+`manifest.json` that maps mapwright's neutral concepts onto art **slots**:
+
+```jsonc
+{
+  "name": "my-pack",
+  "colors": {"parchment": "#ecdfbf", "water": "#b5cad1",
+             "coast": "#463c2c", "label": "#2b2218"},
+  "slots": {
+    "mountain.young": {"files": ["mountains/sharp/*.png"], "width": 2.0, "anchor": "bottom"},
+    "mountain.old":   {"files": ["mountains/eroded/*.png"]},
+    "hill":           {"files": ["hills/*.png"]},
+    "tree.pine":      {"files": ["trees/pine/*.png"]},
+    "tree.deciduous": {"files": ["trees/leafy/*.png"]},
+    "city.castle":    {"files": ["cities/castle*.png"]},
+    "decoration.compass": {"files": ["compass/*.png"], "anchor": "center"}
+  }
+}
+```
+
+Slots the renderer asks for: terrain relief — `mountain.young` / `mountain.mid` /
+`mountain.old` (chosen by `land_age`), `hill`, `tree.pine` / `tree.deciduous` /
+`tree.cactus` (by climate), `dune`; settlements — `city.castle` / `city.large` /
+`city.town` / `city.village` (by marker `kind`); decorations — `decoration.creature`
+/ `decoration.ship` / `decoration.compass`. A missing fine slot falls back to a coarser
+sibling (`mountain.mid` → any `mountain.*`), so partial packs still render. With **no**
+`manifest.json`, `ArtPack.from_directory()` auto-discovers slots from a conventional
+folder layout. Because packs are pure data, a host like an image-generation service can
+**produce them on demand** in any style — the generation stays the same; the pack is the skin.
 
 ## Determinism
 

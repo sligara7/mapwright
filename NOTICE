@@ -38,7 +38,11 @@ copied from them; this NOTICE credits the lineage of the techniques.
     Concept only (NO code derived — AGPLv3 is incompatible with this MIT
     project): the idea of shaping land with a simple tectonic-plate simulation
     (continental/oceanic plates whose convergent boundaries raise mountain
-    ranges). mapwright's plate model is an independent clean-room implementation.
+    ranges), and the general approach of compositing a map from stamped symbol
+    images. mapwright's plate model and AtlasRenderer are independent clean-room
+    implementations; AtlasRenderer's optional art-pack auto-discovery merely
+    recognises a Nortantis-like folder naming convention (mountains/, hills/,
+    trees/, …) as a data layout — no Nortantis code or art is used or bundled.
 
 * "Fractal Worldmap Generator" by John Olsson / Torben Æ. Mogensen
     https://www.lysator.liu.se/~johol/fwmg/fwmg.html
