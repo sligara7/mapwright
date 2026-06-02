@@ -8,7 +8,13 @@ All notable changes to mapwright are documented here. The format follows
 `tests/test_api_contract.py`). While the version is `0.x`, minor versions may
 make breaking changes; these will always be noted here.
 
-## [Unreleased]
+## [0.11.0] — 2026-06-02
+
+### Changed
+- **Settlement footprints are no longer circular.** Town outlines are now
+  elongated along a random axis, lopsided via low-frequency radial lobes, and
+  rotated — a clearly organic (but still convex, so lots/streets/walls stay valid)
+  shape instead of a near-perfect disk. Regenerated the town/port/citadel gallery.
 
 ### Added
 - Property-based tests (Hypothesis, a new dev dependency) over config clamping,
@@ -177,7 +183,8 @@ Initial release. Domain-neutral procedural fantasy map & world generation.
   polygons, coastline, rivers, labelled markers. `compute_cell_polygons` rebuilds
   convex Voronoi polygons via half-plane clipping.
 
-[Unreleased]: https://github.com/sligara7/mapwright/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/sligara7/mapwright/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/sligara7/mapwright/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/sligara7/mapwright/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/sligara7/mapwright/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/sligara7/mapwright/compare/v0.7.0...v0.8.0

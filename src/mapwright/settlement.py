@@ -437,19 +437,37 @@ class SettlementGenerator:
 
     @staticmethod
     def _radius(population: int, width: int, height: int) -> float:
-        """Town radius: grows with √population, capped to fit the canvas."""
-        fit = 0.46 * min(width, height)
+        """Town radius (long axis): grows with √population, capped to leave the
+        canvas a margin even once the footprint is elongated/lobed."""
+        fit = 0.40 * min(width, height)
         return min(fit, max(6.0, math.sqrt(population) * 0.45))
 
     def _footprint(self, cx: float, cy: float, radius: float, irregularity: float) -> list[Point]:
-        """An organic, convex blob: jittered radii around a ring, then convex hull
-        (the hull guarantees convexity so wards clip cleanly)."""
-        k = 28
+        """An organic, convex town outline — clearly non-circular: elongated along a
+        random axis, lopsided via low-frequency radial lobes, then convex-hulled so
+        wards still clip cleanly. ``radius`` is the long-axis half-extent.
+
+        (Low-frequency harmonics — not per-vertex jitter — are what survive the
+        convex hull as real lobes; independent jitter just hulls back to a circle.)
+        """
+        theta = self._rng.uniform(0.0, 2.0 * math.pi)          # random orientation
+        aspect = 1.0 + (0.25 + 0.45 * irregularity) * self._rng.random()  # elongation
+        a1 = 0.16 * irregularity * self._rng.uniform(0.4, 1.0)  # lopsided (1st harmonic)
+        a2 = 0.10 * irregularity * self._rng.uniform(0.4, 1.0)  # oval-ish (2nd harmonic)
+        p1 = self._rng.uniform(0.0, 2.0 * math.pi)
+        p2 = self._rng.uniform(0.0, 2.0 * math.pi)
+        ct, st = math.cos(theta), math.sin(theta)
+
+        k = 40
         pts: list[Point] = []
         for i in range(k):
-            ang = 2 * math.pi * i / k
-            rr = radius * (1.0 + self._rng.fuzzy(0.0, 0.18 * irregularity))
-            pts.append((cx + rr * math.cos(ang), cy + rr * math.sin(ang)))
+            ang = 2.0 * math.pi * i / k
+            rr = 1.0 + a1 * math.sin(ang + p1) + a2 * math.sin(2 * ang + p2)
+            ux = rr * math.cos(ang)              # long axis (= radius)
+            uy = rr * math.sin(ang) / aspect     # squash the short axis → ellipse
+            x = radius * (ux * ct - uy * st)     # rotate into the random frame
+            y = radius * (ux * st + uy * ct)
+            pts.append((cx + x, cy + y))
         return convex_hull(pts)
 
     def _apply_coast(
