@@ -283,87 +283,113 @@ class RegionalTerrainGenerator:
         diag = math.hypot(width, height)
         centroids = np.array([[c.cx, c.cy] for c in cells])
         d_true = np.sqrt((centroids[:, 0] - cx) ** 2 + (centroids[:, 1] - cy) ** 2) / (diag / 2)
+        n_cells = len(cells)
 
-        def gaussian(px: float, py: float, radius: float, amp: float) -> np.ndarray:
-            d2 = (centroids[:, 0] - px) ** 2 + (centroids[:, 1] - py) ** 2
-            return amp * np.exp(-d2 / (2 * radius * radius))
+        # --- Tectonic plates ------------------------------------------------
+        # A simple plate model (clean-room from the *idea* in Nortantis): the map is
+        # tiled into continental + oceanic plates; each drifts; where plates push
+        # together (convergent boundaries) crust piles up into mountain RANGES. The
+        # plate regions are irregular (a Voronoi over scattered seeds) and there is
+        # no centre bias, so coastlines come out organic rather than circular.
 
-        # Continent centres. One ⇒ a central landmass; several ⇒ seats on a ring.
+        # Continental plate seeds reuse the `continents` knob (1 central, or N on a
+        # ring) so the knob keeps meaning. For multiple continents, OCEANIC seeds are
+        # interleaved *between* them on the ring (+ one in the centre) so plate
+        # boundaries fall in open water → the land fragments into separate islands
+        # rather than fusing into one blob.
         n = cfg.continents
-        major_radius = diag * 0.30 / (1 + 0.45 * (n - 1))
-        centers: list[tuple[float, float]] = []
+        cont_seeds: list[tuple[float, float]] = []
+        ocean_seeds: list[tuple[float, float]] = []
         if n == 1:
-            centers.append((cx + self._rng.fuzzy(0, width * 0.1),
-                            cy + self._rng.fuzzy(0, height * 0.1)))
+            cont_seeds.append((cx + self._rng.fuzzy(0, width * 0.12),
+                               cy + self._rng.fuzzy(0, height * 0.12)))
+            ocean_seeds = [(self._rng.uniform(0, width), self._rng.uniform(0, height))
+                           for _ in range(4)]
         else:
             ring = cfg.continent_spread * min(width, height) * 0.42
+
+            def ring_pt(angle: float) -> tuple[float, float]:
+                return (cx + ring * math.cos(angle) + self._rng.fuzzy(0, width * 0.05),
+                        cy + ring * math.sin(angle) + self._rng.fuzzy(0, height * 0.05))
+
             for i in range(n):
-                ang = 2 * math.pi * i / n + self._rng.fuzzy(0, 0.5)
-                centers.append((cx + ring * math.cos(ang) + self._rng.fuzzy(0, width * 0.06),
-                                cy + ring * math.sin(ang) + self._rng.fuzzy(0, height * 0.06)))
+                cont_seeds.append(ring_pt(2 * math.pi * i / n + self._rng.fuzzy(0, 0.4)))
+                ocean_seeds.append(ring_pt(2 * math.pi * (i + 0.5) / n + self._rng.fuzzy(0, 0.4)))
+            ocean_seeds.append((cx + self._rng.fuzzy(0, width * 0.1),
+                                cy + self._rng.fuzzy(0, height * 0.1)))  # inner sea
+            ocean_seeds += [(self._rng.uniform(0, width), self._rng.uniform(0, height))
+                            for _ in range(2)]
+        seeds = cont_seeds + ocean_seeds
+        is_continental = [True] * len(cont_seeds) + [False] * len(ocean_seeds)
+        n_plates = len(seeds)
+        seed_arr = np.array(seeds)
 
-        # --- Stage 1: organic land/sea MASK ---------------------------------
-        # "landness" = a radial island bias near each continent centre + strong
-        # fractal noise, so the *coastline* (landness ≈ 0) follows noise contours
-        # and comes out irregular (bays, capes, islets) rather than a disk. The
-        # noise only decides land-vs-sea here — elevation is a separate, smooth
-        # field below, so a noisy mask never fragments the drainage.
-        center_arr = np.array(centers)
-        d2c = ((centroids[:, None, 0] - center_arr[None, :, 0]) ** 2
-               + (centroids[:, None, 1] - center_arr[None, :, 1]) ** 2)
-        nd = np.sqrt(d2c.min(axis=1)) / major_radius
-        bias = 1.0 - nd ** 2
-        shape = (self._fbm(centroids, width, height, octaves=5, base_res=3) - 0.5) * 2.0
-        landness = bias + shape * 0.85
-        landness = landness - (cfg.sea_level - 0.32) * 2.4         # "more water" knob
-        landness = landness - np.clip((d_true - 0.78) / 0.22, 0, 1) * 3.0 * cfg.edge_falloff
-        is_land = landness > 0.0
+        # Assign every cell to its nearest plate seed (plate Voronoi).
+        d2p = ((centroids[:, None, 0] - seed_arr[None, :, 0]) ** 2
+               + (centroids[:, None, 1] - seed_arr[None, :, 1]) ** 2)
+        plate = d2p.argmin(axis=1)
 
-        # --- Stage 2: smooth, drainable ELEVATION ---------------------------
-        # Land height rises with graph distance from the coast (a smooth, monotone
-        # gradient so flux concentrates into trunk rivers), plus mountain relief.
-        INF = 10 ** 9
-        dist = [INF] * len(cells)
-        q: deque[int] = deque()
-        for i, land in enumerate(is_land):
-            if not land:
-                dist[i] = 0
-                q.append(i)
-        while q:
-            u = q.popleft()
-            for v in cells[u].neighbors:
-                if dist[v] > dist[u] + 1:
-                    dist[v] = dist[u] + 1
-                    q.append(v)
-        land_dist = np.array([dist[i] if is_land[i] else 0 for i in range(len(cells))], float)
-        maxd = max(1.0, land_dist.max())
+        # A random drift direction (+ speed) per plate.
+        drift = np.array([
+            (math.cos(a) * s, math.sin(a) * s)
+            for a, s in ((self._rng.uniform(0, 2 * math.pi), self._rng.uniform(0.4, 1.0))
+                         for _ in range(n_plates))
+        ])
 
-        # Mountain relief — gaussian bumps anchored to a landmass.
-        relief = np.zeros(len(cells))
-        for _ in range(round(2 + cfg.mountain_density * 8)):
-            bx, by = self._rng.choice(centers)
-            relief = relief + gaussian(bx + self._rng.fuzzy(0, major_radius * 0.55),
-                                       by + self._rng.fuzzy(0, major_radius * 0.55),
-                                       radius=diag * self._rng.uniform(0.06, 0.16),
-                                       amp=self._rng.uniform(0.2, 0.35 + cfg.mountain_density * 0.5))
-        # Low-frequency undulation carves broad ridges and valleys into the land so
-        # flow concentrates into trunk rivers (smooth enough not to pit the surface);
-        # higher-frequency tex is just fine texture.
-        undulation = (self._fbm(centroids, width, height, octaves=3, base_res=3) - 0.5)
-        tex = (self._fbm(centroids, width, height, octaves=5, base_res=6) - 0.5)
+        # Base elevation by plate type: continental crust rides high, oceanic low.
+        base = np.array([0.55 if is_continental[plate[i]] else -0.65 for i in range(n_cells)])
 
-        # Assemble land elevation (coast-distance gradient + valleys → drainage),
-        # then normalise land into (sea_level, 1]; sea sits below sea_level.
-        land_h = 0.42 * (land_dist / maxd) + relief + 0.62 * undulation + 0.05 * tex
-        land_max = max(1e-6, float(land_h[is_land].max()) if is_land.any() else 1.0)
+        # Convergent-boundary uplift: at a cell bordering another plate, project the
+        # plates' relative drift onto the boundary normal; pushing together → uplift,
+        # scaled by what's colliding (continent–continent ranges > arcs).
+        boundary = np.zeros(n_cells)
+        for c in cells:
+            pi = plate[c.id]
+            for nb in c.neighbors:
+                pj = plate[nb]
+                if pj == pi:
+                    continue
+                dx, dy = cells[nb].cx - c.cx, cells[nb].cy - c.cy
+                length = math.hypot(dx, dy) or 1.0
+                conv = ((drift[pi, 0] - drift[pj, 0]) * dx
+                        + (drift[pi, 1] - drift[pj, 1]) * dy) / length
+                if conv <= 0:
+                    continue
+                ci, cj = is_continental[pi], is_continental[pj]
+                mag = 1.0 if (ci and cj) else (0.6 if (ci or cj) else 0.35)
+                boundary[c.id] = max(boundary[c.id], conv * mag)
+
+        # Spread uplift inland so ranges have width (neighbour-max with decay).
+        uplift = boundary.copy()
+        for _ in range(3):
+            spread = uplift.copy()
+            for c in cells:
+                for nb in c.neighbors:
+                    decayed = uplift[nb] * 0.6
+                    if decayed > spread[c.id]:
+                        spread[c.id] = decayed
+            uplift = spread
+        uplift = uplift * (0.5 + 1.2 * cfg.mountain_density)
+
+        # Fractal coastline detail breaks the straight plate edges into organic
+        # bays/capes; a radial edge term frames the map in sea (works *with* the
+        # percentile sea level below — it just pushes border cells to the low end).
+        coast = (self._fbm(centroids, width, height, octaves=5, base_res=3) - 0.5) * 2.0
+        raw = base + uplift + 0.45 * coast
+        raw = raw - np.clip((d_true - 0.58) / 0.42, 0, 1) * 1.8 * cfg.edge_falloff
+
+        # --- Percentile sea level: exactly `sea_level` of cells become water ----
+        # (the fwmg idea). Maps the threshold to sea_level so a higher sea_level
+        # floods more, by construction; land scales into (sea_level, 1].
         sea = cfg.sea_level
+        thr = float(np.quantile(raw, sea))
+        rmin, rmax = float(raw.min()), float(raw.max())
         for i, cell in enumerate(cells):
-            if is_land[i]:
-                cell.height = float(sea + max(0.0, land_h[i]) / land_max * (1.0 - sea))
+            r = float(raw[i])
+            if r <= thr:
+                cell.height = float(sea * (r - rmin) / max(1e-6, thr - rmin))
             else:
-                # Deeper away from land (cosmetic; biome/relief treat sea uniformly).
-                depth = min(1.0, max(0.0, -landness[i]) * 0.5)
-                cell.height = float(sea * (1.0 - 0.6 * depth))
+                cell.height = float(sea + (1.0 - sea) * (r - thr) / max(1e-6, rmax - thr))
 
     # -- 3. Planchon–Darboux depression fill -----------------------------
 

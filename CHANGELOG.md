@@ -8,6 +8,22 @@ All notable changes to mapwright are documented here. The format follows
 `tests/test_api_contract.py`). While the version is `0.x`, minor versions may
 make breaking changes; these will always be noted here.
 
+## [0.13.0] — 2026-06-02
+
+### Changed
+- **Tectonic-plate terrain.** The heightmap is now built from a simple plate
+  simulation instead of a radial/noise field: the map is tiled into continental
+  and oceanic plates (Voronoi over plate seeds) that drift, and **convergent plate
+  boundaries raise mountain ranges** — so continents get organic coastlines *and*
+  believable linear mountain belts, with no centre bias. The `continents` knob is
+  the number of continental plates; oceanic plates interleave between them, so
+  multi-continent worlds (`archipelago`, `islands`) fragment into scattered islands
+  around an inner sea rather than one blob. Sea level is now **percentile-based**
+  (`sea_level` maps directly to the water fraction). Rivers form reliably across
+  all presets (a flux-quantile source threshold). Clean-room from the documented
+  ideas of Nortantis (tectonics) and the Fractal Worldmap Generator (percentile
+  sea level); see NOTICE. Regenerated the terrain/roads/regions gallery.
+
 ## [0.12.0] — 2026-06-02
 
 ### Changed
@@ -198,7 +214,8 @@ Initial release. Domain-neutral procedural fantasy map & world generation.
   polygons, coastline, rivers, labelled markers. `compute_cell_polygons` rebuilds
   convex Voronoi polygons via half-plane clipping.
 
-[Unreleased]: https://github.com/sligara7/mapwright/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/sligara7/mapwright/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/sligara7/mapwright/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/sligara7/mapwright/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/sligara7/mapwright/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/sligara7/mapwright/compare/v0.9.0...v0.10.0

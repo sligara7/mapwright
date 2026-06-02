@@ -31,5 +31,18 @@ copied from them; this NOTICE credits the lineage of the techniques.
     subdivided into Voronoi wards. mapwright's settlement code is an independent
     clean-room implementation built on its own geometry primitives.
 
+* Nortantis by Joseph Heydorn (AGPLv3)
+    https://github.com/jeheydorn/nortantis
+    Concept only (NO code derived — AGPLv3 is incompatible with this MIT
+    project): the idea of shaping land with a simple tectonic-plate simulation
+    (continental/oceanic plates whose convergent boundaries raise mountain
+    ranges). mapwright's plate model is an independent clean-room implementation.
+
+* "Fractal Worldmap Generator" by John Olsson / Torben Æ. Mogensen
+    https://www.lysator.liu.se/~johol/fwmg/fwmg.html
+    Ideas (clean-room): a percentile/histogram sea level so a target water
+    fraction is met, and elevation built from many random "faults" rather than a
+    centred radial field.
+
 The name lists ("namebases") bundled with mapwright are original, hand-authored
 data, not derived from any third-party generator.
