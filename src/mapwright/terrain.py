@@ -11,9 +11,11 @@ Pipeline (all on a Voronoi cell graph, then rasterised to the tile grid):
   1. **Voronoi cells** — jittered seed points + nearest-seed assignment, refined
      by a couple of Lloyd-relaxation passes (the FMG/Watabou trick for evenly
      organic cells). Done in pure numpy; no scipy dependency.
-  2. **Heightmap** — additive primitives (a central landmass hill, a few random
-     hills/ranges) minus a radial edge falloff so the map reads as a continent
-     ringed by sea.
+  2. **Heightmap** — an organic land/sea *mask* (a radial island bias near each
+     continent centre + fractal value noise, so coastlines follow noise contours
+     and come out irregular) combined with a separate, smooth *elevation* field
+     (graph distance-to-coast + mountain relief + low-frequency valleys). Splitting
+     shape from elevation keeps the coast organic without pitting the drainage.
   3. **Planchon–Darboux depression fill** — guarantees every land cell drains to
      the sea, so flux/rivers never dead-end in a pit.
   4. **Flux + hydraulic erosion** — water flows to the lowest neighbour, flux
@@ -243,20 +245,52 @@ class RegionalTerrainGenerator:
 
     # -- 2. Heightmap primitives -----------------------------------------
 
+    # -- noise helpers (organic coastlines) ------------------------------
+
+    def _value_noise(self, centroids: np.ndarray, width: int, height: int, res: int) -> np.ndarray:
+        """Smooth value noise in [0,1): a ``res×res`` random lattice (seeded),
+        smoothstep-interpolated at each centroid."""
+        lattice = self._np.random((res + 1, res + 1))
+        u = np.clip(centroids[:, 0] / max(1, width), 0, 1) * res
+        v = np.clip(centroids[:, 1] / max(1, height), 0, 1) * res
+        x0 = np.floor(u).astype(int)
+        y0 = np.floor(v).astype(int)
+        x1 = np.minimum(x0 + 1, res)
+        y1 = np.minimum(y0 + 1, res)
+        fx, fy = u - x0, v - y0
+        sx = fx * fx * (3 - 2 * fx)  # smoothstep → organic (non-blocky) gradients
+        sy = fy * fy * (3 - 2 * fy)
+        top = lattice[y0, x0] * (1 - sx) + lattice[y0, x1] * sx
+        bot = lattice[y1, x0] * (1 - sx) + lattice[y1, x1] * sx
+        return top * (1 - sy) + bot * sy
+
+    def _fbm(self, centroids: np.ndarray, width: int, height: int,
+             octaves: int = 5, base_res: int = 3) -> np.ndarray:
+        """Fractal (summed-octave) value noise in [0,1)."""
+        total = np.zeros(len(centroids))
+        amp, norm, res = 1.0, 0.0, base_res
+        for _ in range(octaves):
+            total += amp * self._value_noise(centroids, width, height, res)
+            norm += amp
+            amp *= 0.5
+            res *= 2
+        return total / norm
+
     def _init_heightmap(
         self, cells: list[TerrainCell], width: int, height: int, cfg: WorldMapConfig
     ) -> None:
         cx, cy = width / 2, height / 2
         diag = math.hypot(width, height)
         centroids = np.array([[c.cx, c.cy] for c in cells])
+        d_true = np.sqrt((centroids[:, 0] - cx) ** 2 + (centroids[:, 1] - cy) ** 2) / (diag / 2)
 
         def gaussian(px: float, py: float, radius: float, amp: float) -> np.ndarray:
             d2 = (centroids[:, 0] - px) ** 2 + (centroids[:, 1] - py) ** 2
             return amp * np.exp(-d2 / (2 * radius * radius))
 
-        # Major landmasses. One ⇒ a central continent; several ⇒ blobs on a ring.
+        # Continent centres. One ⇒ a central landmass; several ⇒ seats on a ring.
         n = cfg.continents
-        major_radius = diag * 0.28 / (1 + 0.45 * (n - 1))
+        major_radius = diag * 0.30 / (1 + 0.45 * (n - 1))
         centers: list[tuple[float, float]] = []
         if n == 1:
             centers.append((cx + self._rng.fuzzy(0, width * 0.1),
@@ -268,35 +302,68 @@ class RegionalTerrainGenerator:
                 centers.append((cx + ring * math.cos(ang) + self._rng.fuzzy(0, width * 0.06),
                                 cy + ring * math.sin(ang) + self._rng.fuzzy(0, height * 0.06)))
 
-        # Combine landmasses with MAX (not sum) so adjacent continents don't form
-        # additive land-bridges between them — that's what makes islands islands.
-        h = np.zeros(len(cells))
-        for px, py in centers:
-            amp = 1.0 if n == 1 else self._rng.uniform(0.8, 1.0)
-            h = np.maximum(h, gaussian(px, py, major_radius, amp))
+        # --- Stage 1: organic land/sea MASK ---------------------------------
+        # "landness" = a radial island bias near each continent centre + strong
+        # fractal noise, so the *coastline* (landness ≈ 0) follows noise contours
+        # and comes out irregular (bays, capes, islets) rather than a disk. The
+        # noise only decides land-vs-sea here — elevation is a separate, smooth
+        # field below, so a noisy mask never fragments the drainage.
+        center_arr = np.array(centers)
+        d2c = ((centroids[:, None, 0] - center_arr[None, :, 0]) ** 2
+               + (centroids[:, None, 1] - center_arr[None, :, 1]) ** 2)
+        nd = np.sqrt(d2c.min(axis=1)) / major_radius
+        bias = 1.0 - nd ** 2
+        shape = (self._fbm(centroids, width, height, octaves=5, base_res=3) - 0.5) * 2.0
+        landness = bias + shape * 0.85
+        landness = landness - (cfg.sea_level - 0.32) * 2.4         # "more water" knob
+        landness = landness - np.clip((d_true - 0.78) / 0.22, 0, 1) * 3.0 * cfg.edge_falloff
+        is_land = landness > 0.0
 
-        # Hills/ranges — count and height scale with mountain_density. Anchored
-        # to a landmass and *added* on top, so they decorate continents.
-        n_small = round(2 + cfg.mountain_density * 8)
-        spread = major_radius * 0.55  # keep ranges on their landmass (no bridging)
-        for _ in range(n_small):
+        # --- Stage 2: smooth, drainable ELEVATION ---------------------------
+        # Land height rises with graph distance from the coast (a smooth, monotone
+        # gradient so flux concentrates into trunk rivers), plus mountain relief.
+        INF = 10 ** 9
+        dist = [INF] * len(cells)
+        q: deque[int] = deque()
+        for i, land in enumerate(is_land):
+            if not land:
+                dist[i] = 0
+                q.append(i)
+        while q:
+            u = q.popleft()
+            for v in cells[u].neighbors:
+                if dist[v] > dist[u] + 1:
+                    dist[v] = dist[u] + 1
+                    q.append(v)
+        land_dist = np.array([dist[i] if is_land[i] else 0 for i in range(len(cells))], float)
+        maxd = max(1.0, land_dist.max())
+
+        # Mountain relief — gaussian bumps anchored to a landmass.
+        relief = np.zeros(len(cells))
+        for _ in range(round(2 + cfg.mountain_density * 8)):
             bx, by = self._rng.choice(centers)
-            h = h + gaussian(bx + self._rng.fuzzy(0, spread),
-                             by + self._rng.fuzzy(0, spread),
-                             radius=diag * self._rng.uniform(0.06, 0.16),
-                             amp=self._rng.uniform(0.2, 0.35 + cfg.mountain_density * 0.5))
+            relief = relief + gaussian(bx + self._rng.fuzzy(0, major_radius * 0.55),
+                                       by + self._rng.fuzzy(0, major_radius * 0.55),
+                                       radius=diag * self._rng.uniform(0.06, 0.16),
+                                       amp=self._rng.uniform(0.2, 0.35 + cfg.mountain_density * 0.5))
+        # Low-frequency undulation carves broad ridges and valleys into the land so
+        # flow concentrates into trunk rivers (smooth enough not to pit the surface);
+        # higher-frequency tex is just fine texture.
+        undulation = (self._fbm(centroids, width, height, octaves=3, base_res=3) - 0.5)
+        tex = (self._fbm(centroids, width, height, octaves=5, base_res=6) - 0.5)
 
-        # Radial edge falloff: push the map border below sea level so the map
-        # reads as land ringed by sea (and gives real coastlines).
-        d_edge = np.sqrt((centroids[:, 0] - cx) ** 2 + (centroids[:, 1] - cy) ** 2) / (diag / 2)
-        h = h - np.clip((d_edge - 0.45) / 0.55, 0, 1) * (1.15 * cfg.edge_falloff)
-
-        # Normalise to 0..1.
-        h = h - h.min()
-        if h.max() > 0:
-            h = h / h.max()
-        for cell, hv in zip(cells, h):
-            cell.height = float(hv)
+        # Assemble land elevation (coast-distance gradient + valleys → drainage),
+        # then normalise land into (sea_level, 1]; sea sits below sea_level.
+        land_h = 0.42 * (land_dist / maxd) + relief + 0.62 * undulation + 0.05 * tex
+        land_max = max(1e-6, float(land_h[is_land].max()) if is_land.any() else 1.0)
+        sea = cfg.sea_level
+        for i, cell in enumerate(cells):
+            if is_land[i]:
+                cell.height = float(sea + max(0.0, land_h[i]) / land_max * (1.0 - sea))
+            else:
+                # Deeper away from land (cosmetic; biome/relief treat sea uniformly).
+                depth = min(1.0, max(0.0, -landness[i]) * 0.5)
+                cell.height = float(sea * (1.0 - 0.6 * depth))
 
     # -- 3. Planchon–Darboux depression fill -----------------------------
 
@@ -372,10 +439,16 @@ class RegionalTerrainGenerator:
         land = [c for c in cells if not c.is_water]
         if not land:
             return []
-        # A source needs accumulated flux above a threshold that scales with map
-        # size (so big maps aren't flooded) and shrinks with river_density, so
-        # higher density ⇒ lower bar ⇒ more (and smaller) rivers.
-        cutoff = max(5.0, (0.10 - 0.075 * river_density) * len(cells))
+        # Sources are the highest-flux land cells: keep the top fraction (3%..13%
+        # of land, scaling with river_density) via a flux *quantile*. Adapting to
+        # the actual flux distribution — rather than an absolute threshold — makes
+        # rivers form reliably on gentle and steep terrain alike. A small absolute
+        # floor still stops flat maps from over-rivering.
+        land_flux = np.array([c.flux for c in cells if not c.is_water and not c.is_lake])
+        if land_flux.size == 0:
+            return []
+        keep = 0.03 + 0.10 * river_density
+        cutoff = max(5.0, float(np.quantile(land_flux, 1.0 - keep)))
         rivers: list[River] = []
         used: set[int] = set()
         sources = sorted(

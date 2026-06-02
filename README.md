@@ -145,7 +145,7 @@ Settlement presets: `hamlet`, `village`, `town`, `city`, `port`, `citadel`.
 |-----------|--------------|
 | `SeededRNG` | One seed drives everything; `.derive(label)` yields independent, reproducible sub-streams (unifies stdlib + numpy). |
 | `NameGenerator` | Order-k character Markov names over hand-authored culture namebases; reproducible across processes. |
-| `RegionalTerrainGenerator` | Voronoi cells (Lloyd-relaxed) → heightmap → Planchon–Darboux depression fill → flux + hydraulic/creep erosion → rivers + inland lakes → latitude/elevation climate with **rain-shadow** → Whittaker biomes. |
+| `RegionalTerrainGenerator` | Voronoi cells (Lloyd-relaxed) → noise-shaped **organic** land/sea mask + distance-to-coast elevation → Planchon–Darboux depression fill → flux + hydraulic/creep erosion → rivers + inland lakes → latitude/elevation climate with **rain-shadow** → Whittaker biomes. |
 | `compute_cell_polygons` | Reconstructs convex Voronoi polygons (half-plane clipping) for vector rendering. |
 | `RegionalSVGRenderer` | Shaded-relief (hillshade) SVG: biome polygons, coastline, rivers, roads, labelled markers. |
 | `RegionalRoadGenerator` | Connects settlement sites with trade routes — an MST whose edges are A*-routed over the terrain (avoids sea, climbs/crosses rivers at a cost). |

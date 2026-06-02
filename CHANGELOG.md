@@ -8,6 +8,21 @@ All notable changes to mapwright are documented here. The format follows
 `tests/test_api_contract.py`). While the version is `0.x`, minor versions may
 make breaking changes; these will always be noted here.
 
+## [0.12.0] — 2026-06-02
+
+### Changed
+- **Organic, non-circular landmasses.** The heightmap was a sum of circular
+  gaussians minus a radial edge falloff, so continents read as disks. It now
+  splits **shape from elevation**: an organic land/sea mask (radial island bias +
+  fractal value noise → irregular coastlines with bays, capes, and scattered
+  islets) combined with a separate *smooth* elevation field (graph
+  distance-to-coast + mountain relief + low-frequency valleys). Decoupling them is
+  what keeps the coastline organic without fragmenting the drainage.
+- **Rivers now use a flux-quantile source threshold** (top 3–13% of land cells by
+  accumulated flux, scaling with `river_density`) instead of an absolute,
+  total-cell-count threshold — so rivers form reliably on gentle and steep terrain
+  alike and track the actual flux distribution. Regenerated the terrain gallery.
+
 ## [0.11.0] — 2026-06-02
 
 ### Changed
@@ -183,7 +198,8 @@ Initial release. Domain-neutral procedural fantasy map & world generation.
   polygons, coastline, rivers, labelled markers. `compute_cell_polygons` rebuilds
   convex Voronoi polygons via half-plane clipping.
 
-[Unreleased]: https://github.com/sligara7/mapwright/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/sligara7/mapwright/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/sligara7/mapwright/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/sligara7/mapwright/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/sligara7/mapwright/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/sligara7/mapwright/compare/v0.8.0...v0.9.0
