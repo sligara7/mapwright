@@ -41,6 +41,11 @@ produced by [`examples/gallery.py`](examples/gallery.py):
 <tr>
 <td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/roads.png" alt="settlements linked by terrain-routed roads"><br><sub><code>RegionalRoadGenerator</code></sub></td>
 <td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/regions.png" alt="land partitioned into named territories"><br><sub><code>RegionGenerator</code></sub></td>
+<td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/template-isthmus.png" alt="isthmus heightmap template"><br><sub><code>template="isthmus"</code></sub></td>
+</tr>
+<tr>
+<td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/template-atoll.png" alt="atoll heightmap template"><br><sub><code>template="atoll"</code></sub></td>
+<td></td>
 <td></td>
 </tr>
 </table>
@@ -87,6 +92,18 @@ WorldMapConfig.from_dict({"temperature": 5, "continents": -3})  # -> safe, clamp
 
 Presets: `continent`, `pangaea`, `archipelago`, `islands`, `highlands`, `desert`,
 `arctic`, `tropical`.
+
+Terrain defaults to a **tectonic-plate** simulation (organic coasts + mountain ranges).
+For a controllable continent *archetype*, pass a `template` (Azgaar-style composed
+heightmap ops) — `config` still drives sea level, climate, and rivers on top of it:
+
+```python
+from mapwright import RegionalTerrainGenerator, SeededRNG, WorldMapConfig, TERRAIN_TEMPLATES
+
+print(list(TERRAIN_TEMPLATES))   # archipelago, volcano, peninsula, isthmus, atoll, continents
+world = RegionalTerrainGenerator(SeededRNG(5)).generate(
+    80, 58, WorldMapConfig(sea_level=0.55), template="archipelago")
+```
 
 Save and reload worlds (and dungeons) — JSON round-trips losslessly, so a reloaded
 world renders byte-identically:

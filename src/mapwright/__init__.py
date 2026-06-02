@@ -49,10 +49,11 @@ from .terrain import (
     TerrainCell,
     TerrainResult,
     RegionalTerrainGenerator,
+    TERRAIN_TEMPLATES,
     compute_cell_polygons,
 )
 
-__version__ = "0.13.0"
+__version__ = "0.14.0"
 
 __all__ = [
     "SeededRNG",
@@ -66,6 +67,7 @@ __all__ = [
     "TerrainCell",
     "TerrainResult",
     "RegionalTerrainGenerator",
+    "TERRAIN_TEMPLATES",
     "compute_cell_polygons",
     "Marker",
     "RegionalSVGRenderer",

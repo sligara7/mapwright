@@ -14,7 +14,9 @@ copied from them; this NOTICE credits the lineage of the techniques.
     https://github.com/Azgaar/Fantasy-Map-Generator
     Ideas: jittered-grid Voronoi with Lloyd relaxation, flux-accumulation
     rivers, temperature x precipitation -> biome matrix, Markov per-culture
-    name generation, single-seed determinism, SVG cartographic rendering.
+    name generation, single-seed determinism, SVG cartographic rendering,
+    composable heightmap templates (hill/range/pit/trough/strait ops combined
+    into named continent archetypes).
 
 * "Generating fantasy maps" by Martin O'Leary (mewo2), and its C++ implementation
   FantasyMapGenerator by Ryan L. Guy (rlguy) (Zlib License)

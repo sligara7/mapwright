@@ -63,6 +63,12 @@ def render_preset(name: str, seed: int) -> str:
     return RegionalSVGRenderer(scale=MAP_SCALE).render(terrain)
 
 
+def render_template(template: str, sea_level: float, seed: int) -> str:
+    cfg = WorldMapConfig(sea_level=sea_level)
+    t = RegionalTerrainGenerator(SeededRNG(seed)).generate(MAP_W, MAP_H, config=cfg, template=template)
+    return RegionalSVGRenderer(scale=MAP_SCALE).render(t)
+
+
 def render_dungeon(seed: int = 3) -> str:
     dungeon = DungeonGenerator(SeededRNG(seed)).generate(DUNGEON_W, DUNGEON_H)
     return DungeonSVGRenderer(scale=DUNGEON_SCALE).render(dungeon, labels=True)
@@ -125,6 +131,8 @@ def main() -> None:
     emit("citadel", render_settlement("citadel", seed=3))
     emit("roads", render_roads(seed=7))
     emit("regions", render_regions(seed=4))
+    emit("template-isthmus", render_template("isthmus", 0.5, seed=5))
+    emit("template-atoll", render_template("atoll", 0.55, seed=8))
 
     if not wrote_png:
         print("(cairosvg not installed — wrote SVG only; `pip install cairosvg` for PNGs)")

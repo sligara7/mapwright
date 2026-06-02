@@ -27,6 +27,7 @@ EXPECTED_PUBLIC = {
     "TerrainCell",
     "TerrainResult",
     "RegionalTerrainGenerator",
+    "TERRAIN_TEMPLATES",
     "compute_cell_polygons",
     "Marker",
     "RegionalSVGRenderer",

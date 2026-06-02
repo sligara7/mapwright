@@ -141,6 +141,37 @@ class TestRainShadow:
         assert all(0.0 <= c.moisture <= 1.0 for c in _gen(5, 40, 40).cells)
 
 
+class TestTemplates:
+    def test_registry_nonempty(self):
+        from mapwright.terrain import TERRAIN_TEMPLATES
+        assert TERRAIN_TEMPLATES and "archipelago" in TERRAIN_TEMPLATES
+
+    def test_every_template_produces_land_and_water(self):
+        from mapwright.terrain import TERRAIN_TEMPLATES
+        cfg = WorldMapConfig(sea_level=0.5)
+        for name in TERRAIN_TEMPLATES:
+            t = _gen(5, 64, 46, config=cfg, template=name)
+            water = sum(c.is_water for c in t.cells)
+            land = sum(not c.is_water for c in t.cells)
+            assert water > 0 and land > 0, name
+
+    def test_template_is_deterministic(self):
+        a = [c.biome for c in _gen(7, 60, 44, template="archipelago").cells]
+        b = [c.biome for c in _gen(7, 60, 44, template="archipelago").cells]
+        assert a == b
+
+    def test_template_differs_from_default(self):
+        # A template should change the terrain vs the default tectonic mode.
+        default = [c.is_water for c in _gen(7, 60, 44).cells]
+        volcano = [c.is_water for c in _gen(7, 60, 44, template="volcano").cells]
+        assert default != volcano
+
+    def test_unknown_template_falls_back_to_default(self):
+        a = [c.biome for c in _gen(3, 50, 40).cells]
+        b = [c.biome for c in _gen(3, 50, 40, template="does-not-exist").cells]
+        assert a == b
+
+
 class TestParameters:
     def test_higher_sea_level_means_more_water(self):
         from mapwright.config import WorldMapConfig

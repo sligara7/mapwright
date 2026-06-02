@@ -8,6 +8,19 @@ All notable changes to mapwright are documented here. The format follows
 `tests/test_api_contract.py`). While the version is `0.x`, minor versions may
 make breaking changes; these will always be noted here.
 
+## [0.14.0] — 2026-06-02
+
+### Added
+- **Heightmap templates** — an optional, controllable alternative to the default
+  tectonic auto-generation. `RegionalTerrainGenerator.generate(..., template=…)`
+  builds the heightmap from composable elevation ops (hill, pit, range, trough,
+  strait) spread over the cell graph, and `TERRAIN_TEMPLATES` provides named
+  continent archetypes: `continents`, `archipelago`, `peninsula`, `isthmus`,
+  `volcano`, `atoll`. A template sets the *pattern* of high/low ground; `config`
+  still drives sea level (percentile), climate, and rivers on top. Clean-room from
+  the documented idea in Azgaar's Fantasy-Map-Generator (see NOTICE). The default
+  (no template) tectonic terrain is byte-identical — this is purely additive.
+
 ## [0.13.0] — 2026-06-02
 
 ### Changed
@@ -214,7 +227,8 @@ Initial release. Domain-neutral procedural fantasy map & world generation.
   polygons, coastline, rivers, labelled markers. `compute_cell_polygons` rebuilds
   convex Voronoi polygons via half-plane clipping.
 
-[Unreleased]: https://github.com/sligara7/mapwright/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/sligara7/mapwright/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/sligara7/mapwright/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/sligara7/mapwright/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/sligara7/mapwright/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/sligara7/mapwright/compare/v0.10.0...v0.11.0

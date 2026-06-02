@@ -169,6 +169,54 @@ class TerrainResult:
         return _serde.from_json(cls, text)
 
 
+# Heightmap templates — clean-room from the *idea* in Azgaar's FMG: a heightmap is
+# composed from a few elevation ops, and named templates produce recognizable
+# continent archetypes. Each op (see RegionalTerrainGenerator._template_raw):
+#   ("hill"/"pit",  count(min,max), power(min,max), spread, x_range, y_range)
+#   ("range"/"trough", count(min,max), power(min,max), from(x0,x1,y0,y1), to(...))
+#   ("strait", width_fraction, vertical?)
+# Positions/ranges are fractions of width/height; `spread` 0..1 = small..broad.
+# A template sets the *pattern* of high/low ground; `sea_level` (config) still
+# decides how much of it is under water (percentile), so combine e.g.
+# template="archipelago" with a high sea_level.
+TERRAIN_TEMPLATES: dict[str, list[tuple]] = {
+    "continents": [
+        ("hill", (1, 2), (0.7, 0.95), 0.85, (0.22, 0.5), (0.3, 0.7)),
+        ("hill", (1, 2), (0.7, 0.95), 0.85, (0.55, 0.82), (0.3, 0.7)),
+        ("hill", (4, 6), (0.25, 0.45), 0.6, (0.2, 0.8), (0.2, 0.8)),
+        ("range", (1, 2), (0.6, 0.9), (0.25, 0.4, 0.3, 0.7), (0.6, 0.78, 0.3, 0.7)),
+        ("pit", (2, 3), (0.3, 0.5), 0.55, (0.25, 0.75), (0.25, 0.75)),
+    ],
+    "archipelago": [
+        ("hill", (12, 18), (0.4, 0.7), 0.42, (0.1, 0.9), (0.1, 0.9)),
+        ("range", (1, 2), (0.4, 0.6), (0.2, 0.4, 0.2, 0.8), (0.6, 0.8, 0.2, 0.8)),
+        ("strait", 0.12, True),
+        ("strait", 0.10, False),
+    ],
+    "peninsula": [
+        ("hill", (3, 5), (0.5, 0.85), 0.62, (0.3, 0.7), (0.05, 0.45)),
+        ("range", (1, 1), (0.6, 0.9), (0.45, 0.55, 0.1, 0.2), (0.45, 0.55, 0.6, 0.92)),
+        ("hill", (4, 7), (0.3, 0.5), 0.5, (0.35, 0.65), (0.4, 0.95)),
+    ],
+    "isthmus": [
+        ("hill", (3, 5), (0.6, 0.9), 0.62, (0.1, 0.4), (0.2, 0.8)),
+        ("hill", (3, 5), (0.6, 0.9), 0.62, (0.6, 0.9), (0.2, 0.8)),
+        ("range", (1, 1), (0.45, 0.65), (0.35, 0.45, 0.45, 0.55), (0.55, 0.65, 0.45, 0.55)),
+        ("strait", 0.16, False),
+    ],
+    "volcano": [
+        ("hill", (1, 1), (0.95, 1.1), 0.72, (0.45, 0.55), (0.45, 0.55)),
+        ("hill", (3, 5), (0.25, 0.4), 0.5, (0.3, 0.7), (0.3, 0.7)),
+        ("pit", (1, 1), (0.5, 0.7), 0.34, (0.47, 0.53), (0.47, 0.53)),
+    ],
+    "atoll": [
+        ("hill", (1, 1), (0.7, 0.9), 0.8, (0.45, 0.55), (0.45, 0.55)),
+        ("pit", (1, 1), (0.65, 0.85), 0.5, (0.45, 0.55), (0.45, 0.55)),
+        ("hill", (5, 8), (0.2, 0.35), 0.4, (0.25, 0.75), (0.25, 0.75)),
+    ],
+}
+
+
 class RegionalTerrainGenerator:
     """Builds :class:`TerrainResult` for a width×height regional map."""
 
@@ -188,6 +236,7 @@ class RegionalTerrainGenerator:
         *,
         cell_area: float = 6.0,
         relax_iterations: int = 2,
+        template: str = "",
     ) -> TerrainResult:
         """Run the full pipeline and return terrain for a ``width×height`` grid.
 
@@ -195,6 +244,11 @@ class RegionalTerrainGenerator:
         number of continents, climate, mountains, rivers. ``cell_area`` and
         ``relax_iterations`` are quality/detail dials independent of the world's
         character. With no config a balanced single-continent world is produced.
+
+        ``template`` (a name in :data:`TERRAIN_TEMPLATES`, e.g. ``"archipelago"``,
+        ``"volcano"``) selects a composed-op heightmap *archetype* instead of the
+        default tectonic-plate auto-generation; ``config`` still drives sea level,
+        climate, rivers, etc. on top of it.
         """
         cfg = config or WorldMapConfig()
         sea_level = cfg.sea_level
@@ -205,7 +259,7 @@ class RegionalTerrainGenerator:
         cell_of, seeds = _geometry.voronoi_grid(width, height, seeds, relax_iterations)
         cells = self._build_cells(seeds, cell_of)
 
-        self._init_heightmap(cells, width, height, cfg)
+        self._init_heightmap(cells, width, height, cfg, template=template)
         for cell in cells:
             cell.is_water = cell.height < sea_level
 
@@ -277,13 +331,21 @@ class RegionalTerrainGenerator:
         return total / norm
 
     def _init_heightmap(
-        self, cells: list[TerrainCell], width: int, height: int, cfg: WorldMapConfig
+        self, cells: list[TerrainCell], width: int, height: int, cfg: WorldMapConfig,
+        template: str = "",
     ) -> None:
         cx, cy = width / 2, height / 2
         diag = math.hypot(width, height)
         centroids = np.array([[c.cx, c.cy] for c in cells])
         d_true = np.sqrt((centroids[:, 0] - cx) ** 2 + (centroids[:, 1] - cy) ** 2) / (diag / 2)
         n_cells = len(cells)
+
+        # Template mode (Azgaar-style composed ops) — an alternative to the default
+        # tectonic auto-generation, for controllable continent archetypes.
+        if template in TERRAIN_TEMPLATES:
+            raw = self._template_raw(cells, centroids, width, height, template)
+            self._finalize_heights(cells, raw, d_true, cfg)
+            return
 
         # --- Tectonic plates ------------------------------------------------
         # A simple plate model (clean-room from the *idea* in Nortantis): the map is
@@ -376,11 +438,15 @@ class RegionalTerrainGenerator:
         # percentile sea level below — it just pushes border cells to the low end).
         coast = (self._fbm(centroids, width, height, octaves=5, base_res=3) - 0.5) * 2.0
         raw = base + uplift + 0.45 * coast
-        raw = raw - np.clip((d_true - 0.58) / 0.42, 0, 1) * 1.8 * cfg.edge_falloff
+        self._finalize_heights(cells, raw, d_true, cfg)
 
-        # --- Percentile sea level: exactly `sea_level` of cells become water ----
-        # (the fwmg idea). Maps the threshold to sea_level so a higher sea_level
-        # floods more, by construction; land scales into (sea_level, 1].
+    def _finalize_heights(self, cells, raw, d_true, cfg: WorldMapConfig) -> None:
+        """Frame the map in sea and set per-cell heights via a **percentile** sea
+        level (the fwmg idea): exactly ``sea_level`` of cells become water, so a
+        higher sea level floods more by construction; land scales into
+        (sea_level, 1] and sea into [0, sea_level). Shared by both heightmap modes.
+        """
+        raw = raw - np.clip((d_true - 0.58) / 0.42, 0, 1) * 1.8 * cfg.edge_falloff
         sea = cfg.sea_level
         thr = float(np.quantile(raw, sea))
         rmin, rmax = float(raw.min()), float(raw.max())
@@ -390,6 +456,94 @@ class RegionalTerrainGenerator:
                 cell.height = float(sea * (r - rmin) / max(1e-6, thr - rmin))
             else:
                 cell.height = float(sea + (1.0 - sea) * (r - thr) / max(1e-6, rmax - thr))
+
+    # -- 2b. Heightmap templates (composable elevation ops) --------------
+
+    def _template_raw(self, cells, centroids, width: int, height: int, template: str) -> np.ndarray:
+        """Build a raw heightmap by running a template's ops (clean-room from the
+        idea in Azgaar's FMG): each op spreads elevation over the cell graph, and
+        named templates compose them into continent archetypes."""
+        raw = np.zeros(len(cells))
+        for op in TERRAIN_TEMPLATES[template]:
+            kind = op[0]
+            if kind == "hill":
+                self._op_blobs(raw, cells, centroids, width, height, *op[1:], sign=+1)
+            elif kind == "pit":
+                self._op_blobs(raw, cells, centroids, width, height, *op[1:], sign=-1)
+            elif kind == "range":
+                self._op_range(raw, cells, centroids, width, height, *op[1:], sign=+1)
+            elif kind == "trough":
+                self._op_range(raw, cells, centroids, width, height, *op[1:], sign=-1)
+            elif kind == "strait":
+                self._op_strait(raw, cells, centroids, width, height, *op[1:])
+        return raw
+
+    @staticmethod
+    def _nearest_cell(centroids: np.ndarray, x: float, y: float) -> int:
+        return int(((centroids[:, 0] - x) ** 2 + (centroids[:, 1] - y) ** 2).argmin())
+
+    def _blob(self, raw, cells, start: int, power: float, decay: float, sign: int) -> None:
+        """Spread an elevation blob from ``start`` outward ring-by-ring over the
+        cell graph (organic because the graph is irregular), decaying each ring."""
+        used = {start}
+        frontier = [start]
+        raw[start] += sign * power
+        p = power
+        while frontier and p * decay > 0.02:
+            p *= decay
+            nxt = []
+            for cur in frontier:
+                for nb in cells[cur].neighbors:
+                    if nb not in used:
+                        used.add(nb)
+                        raw[nb] += sign * p * (0.85 + 0.3 * self._rng.random())
+                        nxt.append(nb)
+            frontier = nxt
+
+    def _op_blobs(self, raw, cells, centroids, width, height,
+                  count, power_rng, spread, x_rng, y_rng, *, sign) -> None:
+        decay = 0.5 + 0.42 * spread  # spread 0 ⇒ small blob, 1 ⇒ broad landmass
+        for _ in range(self._rng.randint(count[0], count[1])):
+            x = width * self._rng.uniform(*x_rng)
+            y = height * self._rng.uniform(*y_rng)
+            power = self._rng.uniform(*power_rng)
+            self._blob(raw, cells, self._nearest_cell(centroids, x, y), power, decay, sign)
+
+    def _op_range(self, raw, cells, centroids, width, height,
+                  count, power_rng, frm, to, *, sign) -> None:
+        """Trace a path from a `frm` region to a `to` region, raising/lowering a
+        thin ridge along it → a linear mountain range (or rift trough)."""
+        for _ in range(self._rng.randint(count[0], count[1])):
+            start = self._nearest_cell(centroids, width * self._rng.uniform(frm[0], frm[1]),
+                                       height * self._rng.uniform(frm[2], frm[3]))
+            goal = self._nearest_cell(centroids, width * self._rng.uniform(to[0], to[1]),
+                                      height * self._rng.uniform(to[2], to[3]))
+            power = self._rng.uniform(*power_rng)
+            cur, path, seen = start, [start], {start}
+            while cur != goal and len(path) < len(cells):
+                gx, gy = centroids[goal]
+                nbs = cells[cur].neighbors
+                cur = min(nbs, key=lambda n: ((centroids[n][0] - gx) ** 2 + (centroids[n][1] - gy) ** 2)
+                          - self._rng.random() * (width * height) * 0.02)
+                if cur in seen:
+                    break
+                seen.add(cur)
+                path.append(cur)
+            for cid in path:
+                self._blob(raw, cells, cid, power * (0.6 + 0.4 * self._rng.random()), 0.4, sign)
+
+    def _op_strait(self, raw, cells, centroids, width, height, width_frac, vertical) -> None:
+        """Carve a low water channel across the map (lowers a band) to split land."""
+        if vertical:
+            centre = width * self._rng.uniform(0.35, 0.65)
+            half = max(1.0, width * width_frac / 2)
+            coord = centroids[:, 0]
+        else:
+            centre = height * self._rng.uniform(0.35, 0.65)
+            half = max(1.0, height * width_frac / 2)
+            coord = centroids[:, 1]
+        depth = np.clip(1.0 - np.abs(coord - centre) / half, 0.0, 1.0)
+        raw -= depth * 1.0
 
     # -- 3. Planchon–Darboux depression fill -----------------------------
 
