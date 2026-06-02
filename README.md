@@ -1,8 +1,8 @@
 # mapwright
 
 > ⚠️ **Early development (v0.x, alpha).** The API is still moving and may change without
-> notice between versions. Extracted from a working application; usable today, but pin a
-> commit if you depend on it.
+> notice between versions. Usable today, but pin a version (e.g. `mapwright==0.10.0`) if
+> you depend on it.
 
 **Domain-neutral procedural fantasy map & world generation** — Voronoi terrain with
 hydraulic erosion, climate-driven biomes, rivers, Markov place-names, and shaded-relief
@@ -51,6 +51,8 @@ Regenerate them with `python examples/gallery.py` (SVGs always; PNGs when
 ## Install
 
 ```bash
+pip install mapwright
+# latest from git:
 pip install git+https://github.com/sligara7/mapwright.git
 # or, for local development:
 pip install -e ".[dev]"
