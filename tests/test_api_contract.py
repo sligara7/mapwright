@@ -49,6 +49,19 @@ class TestPublicSurface:
         assert isinstance(mapwright.__version__, str)
         assert mapwright.__version__.count(".") >= 2  # semver-ish
 
+    def test_version_matches_package_metadata(self):
+        # __version__ must match the installed (pyproject) version, so a missed
+        # bump can't ship a mislabelled wheel. Skips when run from source.
+        import importlib.metadata as md
+
+        try:
+            installed = md.version("mapwright")
+        except md.PackageNotFoundError:
+            import pytest
+
+            pytest.skip("mapwright not installed; running from source tree")
+        assert installed == mapwright.__version__
+
 
 class TestKeySignatures:
     def test_generate_signature(self):
