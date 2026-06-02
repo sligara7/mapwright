@@ -14,7 +14,16 @@ own tiles/entities however you like.
 
 ## Gallery
 
-Every image below is a deterministic render of a built-in preset (or a dungeon),
+**`AtlasRenderer`** — the same neutral terrain, skinned with a hand-drawn *art pack*.
+The art here is original, generated through mapwright's companion image service and
+stamped where the physics put it (mountains on the ranges, forests by climate, sea
+serpents offshore). mapwright itself ships no art — the pack is the skin:
+
+<p align="center">
+<img width="640" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/atlas.png" alt="hand-drawn atlas rendered from a sample art pack">
+</p>
+
+Below: deterministic shaded-relief renders of each built-in preset (or a dungeon),
 produced by [`examples/gallery.py`](examples/gallery.py):
 
 <table>

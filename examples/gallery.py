@@ -24,6 +24,8 @@ import argparse
 from pathlib import Path
 
 from mapwright import (
+    ArtPack,
+    AtlasRenderer,
     DungeonGenerator,
     DungeonSVGRenderer,
     Marker,
@@ -109,6 +111,40 @@ def render_regions(seed: int = 4) -> str:
     return RegionalSVGRenderer(scale=MAP_SCALE).render(terrain, regions=regions)
 
 
+# The atlas sample pack (model-generated via storyflow's media_service — see
+# scripts/gen_mapwright_pack.py there) lives next to this gallery. It's the one
+# bundled art in the repo, used only to showcase AtlasRenderer; it is not shipped
+# in the wheel (which packages src/mapwright only).
+ATLAS_PACK_DIR = Path(__file__).resolve().parent.parent / "docs" / "gallery" / "atlas_pack"
+ATLAS_W, ATLAS_H, ATLAS_SCALE = 80, 56, 11.0
+
+
+def render_atlas(seed: int = 5) -> bytes | None:
+    """Render a hand-drawn AtlasRenderer PNG from the bundled sample pack.
+
+    Returns PNG bytes, or ``None`` if the pack is missing or Pillow is absent
+    (the atlas thumbnail is then simply skipped)."""
+    if not ATLAS_PACK_DIR.is_dir():
+        return None
+    try:
+        pack = ArtPack.from_directory(ATLAS_PACK_DIR)
+    except Exception:
+        return None
+    cfg = WorldMapConfig(mountain_density=0.6, sea_level=0.42)
+    terrain = RegionalTerrainGenerator(SeededRNG(seed)).generate(
+        ATLAS_W, ATLAS_H, config=cfg, template="peninsula")
+    markers = [
+        Marker("Eldmoor", 40, 28, kind="settlement_castle"),
+        Marker("Port Vael", 18, 38, kind="settlement_town"),
+        Marker("Brackwater", 60, 44, kind="settlement_village"),
+    ]
+    try:
+        return AtlasRenderer(pack, scale=ATLAS_SCALE, seed=seed).render(
+            terrain, markers, land_age=0.35)
+    except ImportError:
+        return None  # Pillow not installed
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -142,6 +178,15 @@ def main() -> None:
     emit("template-atoll", render_template("atoll", 0.55, seed=8))
     emit("age-young", render_age(0.0, seed=103))
     emit("age-old", render_age(1.0, seed=103))
+
+    # AtlasRenderer thumbnail — a direct PNG (no SVG), from the bundled sample pack.
+    atlas_png = render_atlas(seed=5)
+    if atlas_png:
+        (out / "atlas.png").write_bytes(atlas_png)
+        wrote_png = True
+        print(f"wrote {out / 'atlas.png'}")
+    else:
+        print("(skipped atlas thumbnail — sample pack missing or Pillow not installed)")
 
     if not wrote_png:
         print("(cairosvg not installed — wrote SVG only; `pip install cairosvg` for PNGs)")

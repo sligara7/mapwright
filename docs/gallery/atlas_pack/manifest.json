@@ -1,0 +1,122 @@
+{
+  "name": "atlas_pack",
+  "style": "antique-ink",
+  "colors": {
+    "parchment": "#ecdfbf",
+    "water": "#a9c2cc",
+    "coast": "#463c2c",
+    "label": "#2b2218"
+  },
+  "slots": {
+    "mountain.young": {
+      "files": [
+        "mountain_young_1.png",
+        "mountain_young_2.png"
+      ],
+      "width": 2.0,
+      "anchor": "bottom"
+    },
+    "mountain.mid": {
+      "files": [
+        "mountain_mid_1.png"
+      ],
+      "width": 2.0,
+      "anchor": "bottom"
+    },
+    "mountain.old": {
+      "files": [
+        "mountain_old_1.png",
+        "mountain_old_2.png"
+      ],
+      "width": 2.0,
+      "anchor": "bottom"
+    },
+    "hill": {
+      "files": [
+        "hill_1.png",
+        "hill_2.png"
+      ],
+      "width": 1.5,
+      "anchor": "bottom"
+    },
+    "tree.pine": {
+      "files": [
+        "tree_pine_1.png",
+        "tree_pine_2.png"
+      ],
+      "width": 1.0,
+      "anchor": "bottom"
+    },
+    "tree.deciduous": {
+      "files": [
+        "tree_deciduous_1.png",
+        "tree_deciduous_2.png"
+      ],
+      "width": 1.0,
+      "anchor": "bottom"
+    },
+    "tree.cactus": {
+      "files": [
+        "tree_cactus_1.png"
+      ],
+      "width": 1.0,
+      "anchor": "bottom"
+    },
+    "dune": {
+      "files": [
+        "dune_1.png"
+      ],
+      "width": 0.9,
+      "anchor": "bottom"
+    },
+    "city.castle": {
+      "files": [
+        "city_castle_1.png"
+      ],
+      "width": 1.7,
+      "anchor": "bottom"
+    },
+    "city.large": {
+      "files": [
+        "city_large_1.png"
+      ],
+      "width": 1.7,
+      "anchor": "bottom"
+    },
+    "city.town": {
+      "files": [
+        "city_town_1.png"
+      ],
+      "width": 1.7,
+      "anchor": "bottom"
+    },
+    "city.village": {
+      "files": [
+        "city_village_1.png"
+      ],
+      "width": 1.7,
+      "anchor": "bottom"
+    },
+    "decoration.compass": {
+      "files": [
+        "decoration_compass_1.png"
+      ],
+      "width": 3.0,
+      "anchor": "center"
+    },
+    "decoration.ship": {
+      "files": [
+        "decoration_ship_1.png"
+      ],
+      "width": 3.0,
+      "anchor": "center"
+    },
+    "decoration.creature": {
+      "files": [
+        "decoration_creature_1.png"
+      ],
+      "width": 3.0,
+      "anchor": "center"
+    }
+  }
+}
