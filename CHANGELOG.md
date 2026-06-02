@@ -8,6 +8,22 @@ All notable changes to mapwright are documented here. The format follows
 `tests/test_api_contract.py`). While the version is `0.x`, minor versions may
 make breaking changes; these will always be noted here.
 
+## [0.17.0] — 2026-06-02
+
+### Added
+- **Render themes — `Theme` + `THEMES`.** `RegionalSVGRenderer` now takes a
+  `theme=` (a name or a `Theme`): a palette plus an optional biome *vocabulary*
+  that re-skins the same neutral terrain without regenerating anything. The
+  `Biome` enum is unchanged — a theme only decides how each biome looks and is
+  named — so this is purely additive and the contract is stable. Built-ins:
+  `parchment` (default, **byte-identical** to the previous output), `neon`
+  (Tron / digital-grid), `dune` (Tatooine / sand medium), and `blueprint`.
+  `Theme` is plain hex-string data (JSON-friendly), so a host or image service
+  can author new ones; `Theme.biome_label()` exposes the vocabulary (e.g.
+  `OCEAN` → "Void"). This is the first slice of the "Dominant Medium" /
+  render-theme direction — pair a theme with a matching `ArtPack` for a full
+  restyle. Gallery gains a same-continent neon/dune/blueprint showcase.
+
 ## [0.16.0] — 2026-06-02
 
 ### Added

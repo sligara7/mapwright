@@ -31,6 +31,8 @@ EXPECTED_PUBLIC = {
     "compute_cell_polygons",
     "Marker",
     "RegionalSVGRenderer",
+    "Theme",
+    "THEMES",
     "ArtPack",
     "AtlasRenderer",
     "Road",

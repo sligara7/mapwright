@@ -44,6 +44,7 @@ from .settlement import (
 )
 from .settlement_renderer import SettlementSVGRenderer
 from .svg_renderer import Marker, RegionalSVGRenderer
+from .themes import THEMES, Theme
 from .terrain import (
     Biome,
     River,
@@ -54,7 +55,7 @@ from .terrain import (
     compute_cell_polygons,
 )
 
-__version__ = "0.16.0"
+__version__ = "0.17.0"
 
 __all__ = [
     "SeededRNG",
@@ -72,6 +73,8 @@ __all__ = [
     "compute_cell_polygons",
     "Marker",
     "RegionalSVGRenderer",
+    "Theme",
+    "THEMES",
     "ArtPack",
     "AtlasRenderer",
     "Road",

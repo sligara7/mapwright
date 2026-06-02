@@ -20,7 +20,8 @@ from dataclasses import asdict, dataclass
 from typing import Optional, Sequence
 
 from . import _serde
-from .terrain import Biome, TerrainCell, TerrainResult, compute_cell_polygons
+from .terrain import TerrainCell, TerrainResult, compute_cell_polygons
+from .themes import DEFAULT_THEME, Theme, get_theme
 
 
 @dataclass
@@ -54,31 +55,8 @@ class Marker:
         return _serde.from_json(cls, text)
 
 
-# Base biome fill colours (before relief shading), tuned for a parchment-ish
-# fantasy palette rather than the dungeon tile colours.
-_BIOME_RGB: dict[Biome, tuple[int, int, int]] = {
-    Biome.OCEAN: (31, 78, 107),
-    Biome.COAST: (61, 126, 166),
-    Biome.BEACH: (217, 199, 155),
-    Biome.DESERT: (214, 196, 130),
-    Biome.PLAINS: (169, 196, 127),
-    Biome.FOREST: (79, 130, 74),
-    Biome.SWAMP: (107, 123, 74),
-    Biome.HILLS: (160, 154, 100),
-    Biome.MOUNTAIN: (140, 132, 122),
-    Biome.TUNDRA: (188, 196, 180),
-    Biome.SNOW: (240, 244, 248),
-    Biome.RIVER: (127, 168, 106),  # riverbank green; the river line draws on top
-    Biome.LAKE: (96, 152, 184),    # inland freshwater — lighter than coast, distinct from sea
-}
-
-_OCEAN_BG = (24, 62, 86)
-_COASTLINE = (40, 54, 64)
-_RIVER_COLOR = (74, 130, 175)
-_ROAD_COLOR = (110, 78, 50)        # dirt-road brown
-_ROAD_CASING = (245, 238, 222)     # pale casing so roads read over any biome
-_REGION_BORDER = (120, 36, 44)     # political boundary (dark crimson)
-_REGION_LABEL = (74, 24, 30)
+# Biome fills and all element colours now come from a Theme (see themes.py); the
+# default "parchment" theme reproduces the classic palette byte-for-byte.
 
 _SETTLEMENT_RADIUS = {
     "settlement_city": 5.5,
@@ -95,19 +73,23 @@ def _shade(base: tuple[int, int, int], brightness: float) -> str:
     )
 
 
-def _rgb(c: tuple[int, int, int]) -> str:
-    return "#%02x%02x%02x" % c
-
-
 class RegionalSVGRenderer:
-    """Renders a :class:`TerrainResult` to an SVG document string."""
+    """Renders a :class:`TerrainResult` to an SVG document string.
 
-    def __init__(self, scale: float = 16.0, relief_strength: float = 60.0):
+    ``theme`` selects the palette + biome vocabulary (a name from
+    :data:`~mapwright.themes.THEMES` or a :class:`~mapwright.themes.Theme`); the
+    default ``"parchment"`` is the classic look.
+    """
+
+    def __init__(self, scale: float = 16.0, relief_strength: float = 60.0,
+                 theme: str | Theme = DEFAULT_THEME):
         # scale = pixels per tile-unit; relief_strength exaggerates slope so the
         # hillshade reads on gentle terrain (height diffs between cells are tiny,
         # so this needs to be large).
         self.scale = scale
         self.relief_strength = relief_strength
+        self.theme = get_theme(theme)
+        self._biome_rgb = self.theme.biome_rgb()  # tuples, for relief shading
         # Light from the upper-left (classic cartographic convention).
         lx, ly, lz = -1.0, -1.0, 1.4
         norm = math.sqrt(lx * lx + ly * ly + lz * lz)
@@ -131,7 +113,7 @@ class RegionalSVGRenderer:
         parts: list[str] = [
             f'<svg xmlns="http://www.w3.org/2000/svg" width="{w_px:.0f}" '
             f'height="{h_px:.0f}" viewBox="0 0 {w_px:.0f} {h_px:.0f}">',
-            f'<rect width="{w_px:.0f}" height="{h_px:.0f}" fill="{_rgb(_OCEAN_BG)}"/>',
+            f'<rect width="{w_px:.0f}" height="{h_px:.0f}" fill="{self.theme.ocean_bg}"/>',
         ]
 
         # 1. Biome polygons with relief shading.
@@ -140,7 +122,7 @@ class RegionalSVGRenderer:
             poly = polys.get(cell.id)
             if not poly or len(poly) < 3:
                 continue
-            fill = _shade(_BIOME_RGB[cell.biome], brightness.get(cell.id, 1.0))
+            fill = _shade(self._biome_rgb[cell.biome], brightness.get(cell.id, 1.0))
             pts = " ".join(f"{x * s:.1f},{y * s:.1f}" for x, y in poly)
             # A hairline stroke in the fill colour hides seams between cells.
             parts.append(f'<polygon points="{pts}" fill="{fill}" stroke="{fill}" '
@@ -235,7 +217,7 @@ class RegionalSVGRenderer:
                                 f'L{b[0] * s:.1f},{b[1] * s:.1f}')
         if not segs:
             return ""
-        return (f'<path d="{" ".join(segs)}" fill="none" stroke="{_rgb(_COASTLINE)}" '
+        return (f'<path d="{" ".join(segs)}" fill="none" stroke="{self.theme.coastline}" '
                 f'stroke-width="2.0" stroke-linecap="round"/>')
 
     # -- regions ---------------------------------------------------------
@@ -280,7 +262,7 @@ class RegionalSVGRenderer:
         out: list[str] = []
         if segs:
             out.append(f'<path d="{" ".join(segs)}" fill="none" '
-                       f'stroke="{_rgb(_REGION_BORDER)}" stroke-width="2.2" '
+                       f'stroke="{self.theme.region_border}" stroke-width="2.2" '
                        f'stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>')
         if labels:
             out.append('<g font-family="Georgia, serif" font-size="12" '
@@ -289,8 +271,8 @@ class RegionalSVGRenderer:
                 cap = cells[r.capital]
                 out.append(
                     f'<text x="{cap.cx * s:.1f}" y="{cap.cy * s:.1f}" '
-                    f'stroke="#f7f3ea" stroke-width="3" paint-order="stroke" '
-                    f'fill="{_rgb(_REGION_LABEL)}">{su.escape(r.name)}</text>'
+                    f'stroke="{self.theme.label_halo}" stroke-width="3" paint-order="stroke" '
+                    f'fill="{self.theme.region_label}">{su.escape(r.name)}</text>'
                 )
             out.append("</g>")
         return "".join(out)
@@ -307,7 +289,7 @@ class RegionalSVGRenderer:
             pts = [(cells[i].cx * s, cells[i].cy * s) for i in river.cells]
             d = "M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in pts)
             width = max(0.8, min(4.0, 0.4 * river.width))
-            paths.append(f'<path d="{d}" fill="none" stroke="{_rgb(_RIVER_COLOR)}" '
+            paths.append(f'<path d="{d}" fill="none" stroke="{self.theme.river}" '
                          f'stroke-width="{width:.1f}" stroke-linecap="round" '
                          f'stroke-linejoin="round"/>')
         if not paths:
@@ -331,8 +313,8 @@ class RegionalSVGRenderer:
         # Pale casing under a brown surface so routes read over any biome.
         return (
             '<g fill="none" stroke-linecap="round" stroke-linejoin="round">'
-            f'<path d="{d}" stroke="{_rgb(_ROAD_CASING)}" stroke-width="3.4" opacity="0.7"/>'
-            f'<path d="{d}" stroke="{_rgb(_ROAD_COLOR)}" stroke-width="1.6" '
+            f'<path d="{d}" stroke="{self.theme.road_casing}" stroke-width="3.4" opacity="0.7"/>'
+            f'<path d="{d}" stroke="{self.theme.road}" stroke-width="1.6" '
             f'stroke-dasharray="5,3"/>'
             "</g>"
         )
@@ -346,16 +328,17 @@ class RegionalSVGRenderer:
             r = _SETTLEMENT_RADIUS.get(m.kind, 3.0)
             cx, cy = m.x * s, m.y * s
             out.append(f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{r:.1f}" '
-                       f'fill="#f4ead8" stroke="#2b2b2b" stroke-width="1.2"/>')
+                       f'fill="{self.theme.settlement_fill}" '
+                       f'stroke="{self.theme.settlement_stroke}" stroke-width="1.2"/>')
             if labels and m.name:
                 name = su.escape(m.name)
                 tx, ty = cx + r + 2, cy + 3
                 fs = 11 if "city" in m.kind else 9
-                # White halo behind the label for legibility over any biome.
+                # Halo behind the label for legibility over any biome.
                 out.append(
                     f'<text x="{tx:.1f}" y="{ty:.1f}" font-size="{fs}" '
-                    f'stroke="#f7f3ea" stroke-width="3" paint-order="stroke" '
-                    f'fill="#23211c">{name}</text>'
+                    f'stroke="{self.theme.label_halo}" stroke-width="3" paint-order="stroke" '
+                    f'fill="{self.theme.label_fill}">{name}</text>'
                 )
         out.append("</g>")
         return "".join(out)

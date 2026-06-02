@@ -111,6 +111,22 @@ def render_regions(seed: int = 4) -> str:
     return RegionalSVGRenderer(scale=MAP_SCALE).render(terrain, regions=regions)
 
 
+def render_themed(theme: str, seed: int = 7) -> str:
+    """The *same* continent (settlements + roads) under a render theme — shows
+    that a palette/vocabulary swap restyles existing data with no regeneration."""
+    rng = SeededRNG(seed)
+    terrain = RegionalTerrainGenerator(rng).generate(MAP_W, MAP_H)
+    namer = NameGenerator(rng.derive("names"))
+    land = [c for c in terrain.cells if not c.is_water]
+    picks = land[:: max(1, len(land) // 6)][:6]
+    kinds = ["settlement_city", "settlement_town", "settlement_village"]
+    markers = [Marker(namer.settlement(), c.cx, c.cy, kinds[i % len(kinds)])
+               for i, c in enumerate(picks)]
+    roads = RegionalRoadGenerator().generate(terrain, [(m.x, m.y) for m in markers])
+    return RegionalSVGRenderer(scale=MAP_SCALE, theme=theme).render(
+        terrain, markers, roads=roads)
+
+
 # The atlas sample pack (model-generated via storyflow's media_service — see
 # scripts/gen_mapwright_pack.py there) lives next to this gallery. It's the one
 # bundled art in the repo, used only to showcase AtlasRenderer; it is not shipped
@@ -178,6 +194,10 @@ def main() -> None:
     emit("template-atoll", render_template("atoll", 0.55, seed=8))
     emit("age-young", render_age(0.0, seed=103))
     emit("age-old", render_age(1.0, seed=103))
+    emit("theme-parchment", render_themed("parchment"))
+    emit("theme-neon", render_themed("neon"))
+    emit("theme-dune", render_themed("dune"))
+    emit("theme-blueprint", render_themed("blueprint"))
 
     # AtlasRenderer thumbnail — a direct PNG (no SVG), from the bundled sample pack.
     atlas_png = render_atlas(seed=5)

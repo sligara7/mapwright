@@ -23,6 +23,17 @@ serpents offshore). mapwright itself ships no art — the pack is the skin:
 <img width="640" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/atlas.png" alt="hand-drawn atlas rendered from a sample art pack">
 </p>
 
+**Render themes** — the *same* continent (same cells, rivers, roads, settlements),
+re-skinned by swapping a `Theme` (palette + biome vocabulary). No regeneration:
+
+<table>
+<tr>
+<td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/theme-neon.png" alt="neon (Tron) theme"><br><sub><code>theme="neon"</code></sub></td>
+<td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/theme-dune.png" alt="dune (sand) theme"><br><sub><code>theme="dune"</code></sub></td>
+<td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/theme-blueprint.png" alt="blueprint theme"><br><sub><code>theme="blueprint"</code></sub></td>
+</tr>
+</table>
+
 Below: deterministic shaded-relief renders of each built-in preset (or a dungeon),
 produced by [`examples/gallery.py`](examples/gallery.py):
 
@@ -179,7 +190,8 @@ Settlement presets: `hamlet`, `village`, `town`, `city`, `port`, `citadel`.
 | `NameGenerator` | Order-k character Markov names over hand-authored culture namebases; reproducible across processes. |
 | `RegionalTerrainGenerator` | Voronoi cells (Lloyd-relaxed) → **tectonic-plate** heightmap (organic coasts + mountain ranges at plate collisions; percentile sea level) → Planchon–Darboux depression fill → flux + hydraulic/creep erosion → rivers + inland lakes → latitude/elevation climate with **rain-shadow** → Whittaker biomes. |
 | `compute_cell_polygons` | Reconstructs convex Voronoi polygons (half-plane clipping) for vector rendering. |
-| `RegionalSVGRenderer` | Shaded-relief (hillshade) SVG: biome polygons, coastline, rivers, roads, labelled markers. |
+| `RegionalSVGRenderer` | Shaded-relief (hillshade) SVG: biome polygons, coastline, rivers, roads, labelled markers. Takes a `theme=`. |
+| `Theme` / `THEMES` | A render palette + biome vocabulary; re-skins the same terrain (parchment / neon / dune / blueprint, or your own). The "Dominant Medium" layer. |
 | `AtlasRenderer` / `ArtPack` | Hand-drawn / themed PNG: stamps symbols from an external *art pack* (mountains, forests, hills, settlements, sea decorations) onto the terrain. mapwright ships no art — a pack is a skin. Needs `pip install "mapwright[atlas]"`. |
 | `RegionalRoadGenerator` | Connects settlement sites with trade routes — an MST whose edges are A*-routed over the terrain (avoids sea, climbs/crosses rivers at a cost). |
 | `RegionGenerator` | Partitions land into named factions/territories: spread capitals seed a flood fill over the land graph (sea divides them); each `Region` is Markov-named. |
@@ -240,6 +252,27 @@ sibling (`mountain.mid` → any `mountain.*`), so partial packs still render. Wi
 `manifest.json`, `ArtPack.from_directory()` auto-discovers slots from a conventional
 folder layout. Because packs are pure data, a host like an image-generation service can
 **produce them on demand** in any style — the generation stays the same; the pack is the skin.
+
+### Render themes
+
+The vector `RegionalSVGRenderer` takes a **`Theme`** — a palette plus an optional biome
+*vocabulary* — so the same neutral terrain re-skins into wildly different worlds without
+regenerating anything. The neutral `Biome` enum never changes; a theme just decides how
+each biome looks and is named:
+
+```python
+from mapwright import RegionalSVGRenderer, THEMES
+
+svg = RegionalSVGRenderer(theme="neon").render(terrain, markers, roads=roads)
+# built-ins: "parchment" (default), "neon" (Tron/digital-grid), "dune" (sand), "blueprint"
+THEMES["neon"].biome_label(Biome.OCEAN)   # -> "Void"  (the vocabulary layer)
+```
+
+A `Theme` is plain hex-string data (JSON-friendly), so a host — or the same image service
+that makes art packs — can author new ones. This is the "Dominant Medium" idea from
+mapwright's longer-term vision: a sand planet, a digital grid, and an irradiated waste are
+the *same map* wearing different skins. Pair a theme with a matching `ArtPack` for a full
+restyle of both the vector and hand-drawn renders.
 
 ## Determinism
 
