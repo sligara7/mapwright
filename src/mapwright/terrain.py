@@ -270,6 +270,12 @@ class RegionalTerrainGenerator:
             for cell in cells:
                 cell.is_water = cell.height < sea_level
 
+        # Weathering: old land (age > 0.5) is worn smooth — rounded peaks, gentler
+        # relief; young/default land keeps its sharp edges (0 passes ⇒ unchanged).
+        self._weather(cells, round(max(0.0, cfg.land_age - 0.5) * 6))
+        for cell in cells:
+            cell.is_water = cell.height < sea_level
+
         # Final hydrology pass for stable rivers, then lakes, climate + biomes.
         self._fill_depressions(cells, sea_level)
         self._compute_flux(cells)
@@ -450,12 +456,18 @@ class RegionalTerrainGenerator:
         sea = cfg.sea_level
         thr = float(np.quantile(raw, sea))
         rmin, rmax = float(raw.min()), float(raw.max())
+        # land_age shapes the hypsometric curve via a gamma on land elevation:
+        # young (γ<1) lifts the land high → many sharp peaks/mountains; old (γ>1)
+        # compresses it low → mostly worn hills and plains. (Percentile sea level
+        # rescales away absolute height, so the *distribution shape* is the lever.)
+        gamma = 1.0 + (cfg.land_age - 0.5) * 1.3
         for i, cell in enumerate(cells):
             r = float(raw[i])
             if r <= thr:
                 cell.height = float(sea * (r - rmin) / max(1e-6, thr - rmin))
             else:
-                cell.height = float(sea + (1.0 - sea) * (r - thr) / max(1e-6, rmax - thr))
+                rel = (r - thr) / max(1e-6, rmax - thr)
+                cell.height = float(sea + (1.0 - sea) * rel ** gamma)
 
     # -- 2b. Heightmap templates (composable elevation ops) --------------
 
@@ -602,6 +614,22 @@ class RegionalTerrainGenerator:
             slope = max(0.0, (c.filled - down.filled) / dist)
             erosion = river_factor * math.sqrt(c.flux) * slope + creep_factor * slope * slope
             c.height = max(sea_level * 0.5, c.height - min(erosion, max_rate))
+
+    @staticmethod
+    def _weather(cells: list[TerrainCell], passes: int) -> None:
+        """Round terrain by pulling each land cell's height toward its land
+        neighbours' mean — the "old, worn-down" look. ``passes`` (from land_age)
+        controls how heavily; 0 leaves young/sharp terrain untouched."""
+        for _ in range(max(0, passes)):
+            updated: dict[int, float] = {}
+            for c in cells:
+                if c.is_water:
+                    continue
+                heights = [cells[n].height for n in c.neighbors if not cells[n].is_water]
+                if heights:
+                    updated[c.id] = 0.6 * c.height + 0.4 * (sum(heights) / len(heights))
+            for cid, h in updated.items():
+                cells[cid].height = h
 
     # -- 5. Rivers -------------------------------------------------------
 

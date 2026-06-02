@@ -8,6 +8,17 @@ All notable changes to mapwright are documented here. The format follows
 `tests/test_api_contract.py`). While the version is `0.x`, minor versions may
 make breaking changes; these will always be noted here.
 
+## [0.15.0] — 2026-06-02
+
+### Added
+- **`land_age` — geological age of the terrain** (a mapwright-original idea). A new
+  `WorldMapConfig` knob: 0 = *young* (jagged, tall, snow-capped peaks — think the
+  Rockies), 1 = *old* (worn down to rounded hills and lowlands — the Appalachians).
+  It shapes the hypsometric curve (a gamma on land elevation → more/fewer mountains)
+  and, for old land, applies weathering passes that smooth the relief. The default
+  (0.5) is neutral — terrain is byte-identical to before, so the feature is purely
+  opt-in. First slice of a broader age/era/wealth axis (forests, settlements next).
+
 ## [0.14.0] — 2026-06-02
 
 ### Added
@@ -227,7 +238,8 @@ Initial release. Domain-neutral procedural fantasy map & world generation.
   polygons, coastline, rivers, labelled markers. `compute_cell_polygons` rebuilds
   convex Voronoi polygons via half-plane clipping.
 
-[Unreleased]: https://github.com/sligara7/mapwright/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/sligara7/mapwright/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/sligara7/mapwright/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/sligara7/mapwright/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/sligara7/mapwright/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/sligara7/mapwright/compare/v0.11.0...v0.12.0

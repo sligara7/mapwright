@@ -63,6 +63,13 @@ def render_preset(name: str, seed: int) -> str:
     return RegionalSVGRenderer(scale=MAP_SCALE).render(terrain)
 
 
+def render_age(land_age: float, seed: int) -> str:
+    """Same continent, different geological age (young jagged vs old worn)."""
+    cfg = WorldMapConfig(land_age=land_age, mountain_density=0.7)
+    t = RegionalTerrainGenerator(SeededRNG(seed)).generate(MAP_W, MAP_H, config=cfg)
+    return RegionalSVGRenderer(scale=MAP_SCALE).render(t)
+
+
 def render_template(template: str, sea_level: float, seed: int) -> str:
     cfg = WorldMapConfig(sea_level=sea_level)
     t = RegionalTerrainGenerator(SeededRNG(seed)).generate(MAP_W, MAP_H, config=cfg, template=template)
@@ -133,6 +140,8 @@ def main() -> None:
     emit("regions", render_regions(seed=4))
     emit("template-isthmus", render_template("isthmus", 0.5, seed=5))
     emit("template-atoll", render_template("atoll", 0.55, seed=8))
+    emit("age-young", render_age(0.0, seed=103))
+    emit("age-old", render_age(1.0, seed=103))
 
     if not wrote_png:
         print("(cairosvg not installed — wrote SVG only; `pip install cairosvg` for PNGs)")

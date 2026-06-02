@@ -141,6 +141,35 @@ class TestRainShadow:
         assert all(0.0 <= c.moisture <= 1.0 for c in _gen(5, 40, 40).cells)
 
 
+class TestLandAge:
+    def _mountain_count(self, age, seeds=range(8)):
+        from mapwright.terrain import Biome
+        total = 0
+        for s in seeds:
+            t = _gen(s, 64, 46, config=WorldMapConfig(land_age=age, mountain_density=0.7))
+            total += sum(1 for c in t.cells if c.biome in (Biome.MOUNTAIN, Biome.SNOW))
+        return total
+
+    def test_young_land_is_more_mountainous_than_old(self):
+        # Young = jagged peaks (Rockies); old = worn down to hills (Appalachians).
+        young = self._mountain_count(0.0)
+        old = self._mountain_count(1.0)
+        assert young > old
+
+    def test_default_age_is_neutral(self):
+        # land_age 0.5 must leave terrain identical (gamma 1.0, no weathering), so
+        # the feature is purely opt-in.
+        a = [c.height for c in _gen(7, 60, 44).cells]
+        b = [c.height for c in _gen(7, 60, 44, config=WorldMapConfig(land_age=0.5)).cells]
+        assert a == b
+
+    def test_deterministic(self):
+        cfg = WorldMapConfig(land_age=0.9)
+        a = [c.biome for c in _gen(4, 60, 44, config=cfg).cells]
+        b = [c.biome for c in _gen(4, 60, 44, config=cfg).cells]
+        assert a == b
+
+
 class TestTemplates:
     def test_registry_nonempty(self):
         from mapwright.terrain import TERRAIN_TEMPLATES

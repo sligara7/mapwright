@@ -37,6 +37,8 @@ _SPEC: list[tuple] = [
      "Abundance and height of hills/ranges."),
     ("roughness", float, 0.0, 1.0,
      "Terrain detail (number of erosion passes)."),
+    ("land_age", float, 0.0, 1.0,
+     "Geological age: 0 = young, jagged, tall peaks; 1 = old, worn, rounded."),
     ("temperature", float, -1.0, 1.0,
      "Global temperature bias: -1 frozen .. +1 scorching."),
     ("moisture", float, -1.0, 1.0,
@@ -67,6 +69,8 @@ class WorldMapConfig:
     """0..1 — abundance and height of hills/ranges."""
     roughness: float = 0.5
     """0..1 — terrain detail (drives the number of erosion passes)."""
+    land_age: float = 0.5
+    """0 (young: jagged, tall peaks) .. 1 (old: worn, rounded, lower)."""
 
     # --- Climate ---
     temperature: float = 0.0

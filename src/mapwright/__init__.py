@@ -53,7 +53,7 @@ from .terrain import (
     compute_cell_polygons,
 )
 
-__version__ = "0.14.0"
+__version__ = "0.15.0"
 
 __all__ = [
     "SeededRNG",

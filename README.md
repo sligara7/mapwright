@@ -45,10 +45,14 @@ produced by [`examples/gallery.py`](examples/gallery.py):
 </tr>
 <tr>
 <td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/template-atoll.png" alt="atoll heightmap template"><br><sub><code>template="atoll"</code></sub></td>
-<td></td>
-<td></td>
+<td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/age-young.png" alt="young jagged terrain"><br><sub><code>land_age=0</code> (young)</sub></td>
+<td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/age-old.png" alt="old worn terrain"><br><sub><code>land_age=1</code> (old)</sub></td>
 </tr>
 </table>
+
+The two right-hand maps above are the **same continent** at `land_age=0` (young, jagged,
+snow-capped peaks) vs `land_age=1` (old, worn down to rounded hills) — a mapwright-original
+"geological age" knob.
 
 Regenerate them with `python examples/gallery.py` (SVGs always; PNGs when
 `cairosvg` is installed).
