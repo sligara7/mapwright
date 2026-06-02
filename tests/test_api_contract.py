@@ -30,10 +30,24 @@ EXPECTED_PUBLIC = {
     "compute_cell_polygons",
     "Marker",
     "RegionalSVGRenderer",
+    "Road",
+    "RegionalRoadGenerator",
+    "Region",
+    "RegionGenerator",
     "Dungeon",
     "DungeonConfig",
     "DungeonGenerator",
+    "DungeonSVGRenderer",
     "Rect",
+    "Settlement",
+    "SettlementConfig",
+    "SettlementGenerator",
+    "SettlementSVGRenderer",
+    "Ward",
+    "Lot",
+    "Street",
+    "Wall",
+    "SETTLEMENT_PRESETS",
 }
 
 
@@ -78,6 +92,36 @@ class TestKeySignatures:
     def test_marker_fields(self):
         fields = {f.name for f in dataclasses.fields(mapwright.Marker)}
         assert {"name", "x", "y", "kind"} <= fields
+
+
+class TestSerialisationContract:
+    """The (de)serialisation surface is part of the public contract."""
+
+    def test_roundtrip_types_have_dict_methods(self):
+        for cls in (
+            mapwright.TerrainResult,
+            mapwright.Dungeon,
+            mapwright.Marker,
+            mapwright.TerrainCell,
+            mapwright.River,
+            mapwright.Rect,
+            mapwright.Road,
+            mapwright.Region,
+            mapwright.Settlement,
+            mapwright.Ward,
+            mapwright.Lot,
+            mapwright.Street,
+            mapwright.Wall,
+            mapwright.SettlementConfig,
+        ):
+            assert hasattr(cls, "to_dict") and callable(cls.to_dict)
+            assert hasattr(cls, "from_dict") and callable(cls.from_dict)
+
+    def test_top_level_types_have_json_methods(self):
+        for cls in (mapwright.TerrainResult, mapwright.Dungeon, mapwright.Marker,
+                    mapwright.Settlement):
+            assert hasattr(cls, "to_json") and callable(cls.to_json)
+            assert hasattr(cls, "from_json") and callable(cls.from_json)
 
 
 class TestConfigContract:

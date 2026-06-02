@@ -36,11 +36,12 @@ from __future__ import annotations
 
 import math
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from enum import IntEnum
 
 import numpy as np
 
+from . import _geometry, _serde
 from .config import WorldMapConfig
 from .rng import SeededRNG
 
@@ -61,6 +62,7 @@ class Biome(IntEnum):
     TUNDRA = 9
     SNOW = 10
     RIVER = 11
+    LAKE = 12
 
 
 @dataclass
@@ -75,11 +77,25 @@ class TerrainCell:
     filled: float = 0.0          # depression-filled height (for drainage)
     flux: float = 1.0            # accumulated upstream flow
     downhill: int = -1           # cell id water flows to, or -1 at the sea
-    is_water: bool = False
+    is_water: bool = False       # below sea level (ocean)
+    is_lake: bool = False        # inland standing water (a filled basin)
     is_river: bool = False
     temperature: float = 0.5     # 0 (frozen) .. 1 (hot)
     moisture: float = 0.5        # 0 (arid) .. 1 (wet)
     biome: Biome = Biome.PLAINS
+
+    def to_dict(self) -> dict:
+        """JSON-safe mapping (``biome`` as its int value)."""
+        d = asdict(self)
+        d["biome"] = int(self.biome)
+        return d
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "TerrainCell":
+        d = _serde.only_known(cls, data)
+        if "biome" in d:
+            d["biome"] = Biome(d["biome"])
+        return cls(**d)
 
 
 @dataclass
@@ -88,6 +104,13 @@ class River:
 
     cells: list[int]
     width: float
+
+    def to_dict(self) -> dict:
+        return {"cells": list(self.cells), "width": self.width}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "River":
+        return cls(cells=[int(c) for c in data["cells"]], width=float(data["width"]))
 
 
 @dataclass
@@ -104,6 +127,44 @@ class TerrainResult:
     def elevation_at(self, cell: "TerrainCell") -> float:
         """Normalised height above sea level, 0..1 — handy for rasterisers."""
         return max(0.0, (cell.height - self.sea_level) / max(1e-6, 1 - self.sea_level))
+
+    # -- serialisation / interop ----------------------------------------
+
+    def to_dict(self) -> dict:
+        """A JSON-safe mapping of the whole world.
+
+        Round-trips losslessly through :meth:`from_dict`: floats keep full
+        precision and the ``cell_of`` raster is stored as nested lists, so a
+        saved world reloads bit-identical (and renders identically).
+        """
+        return {
+            "schema": "mapwright/terrain@2",
+            "width": self.width,
+            "height": self.height,
+            "sea_level": self.sea_level,
+            "cells": [c.to_dict() for c in self.cells],
+            "cell_of": self.cell_of.tolist(),
+            "rivers": [r.to_dict() for r in self.rivers],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "TerrainResult":
+        return cls(
+            width=int(data["width"]),
+            height=int(data["height"]),
+            cells=[TerrainCell.from_dict(c) for c in data["cells"]],
+            cell_of=np.asarray(data["cell_of"], dtype=np.int32),
+            rivers=[River.from_dict(r) for r in data["rivers"]],
+            sea_level=float(data["sea_level"]),
+        )
+
+    def to_json(self, **kwargs) -> str:
+        """Serialise to a JSON string (``kwargs`` pass to :func:`json.dumps`)."""
+        return _serde.to_json(self, **kwargs)
+
+    @classmethod
+    def from_json(cls, text: str) -> "TerrainResult":
+        return _serde.from_json(cls, text)
 
 
 class RegionalTerrainGenerator:
@@ -138,8 +199,8 @@ class RegionalTerrainGenerator:
         erosion_passes = max(1, round(1 + cfg.roughness * 4))
 
         n_cells = int(np.clip(round(width * height / cell_area), 16, 1500))
-        seeds = self._sample_seeds(width, height, n_cells)
-        cell_of, seeds = self._voronoi(width, height, seeds, relax_iterations)
+        seeds = _geometry.jittered_grid_seeds(self._rng, width, height, n_cells)
+        cell_of, seeds = _geometry.voronoi_grid(width, height, seeds, relax_iterations)
         cells = self._build_cells(seeds, cell_of)
 
         self._init_heightmap(cells, width, height, cfg)
@@ -153,9 +214,10 @@ class RegionalTerrainGenerator:
             for cell in cells:
                 cell.is_water = cell.height < sea_level
 
-        # Final hydrology pass for stable rivers, then climate + biomes.
+        # Final hydrology pass for stable rivers, then lakes, climate + biomes.
         self._fill_depressions(cells, sea_level)
         self._compute_flux(cells)
+        self._assign_lakes(cells, sea_level, cfg.lake_density)
         rivers = self._trace_rivers(cells, cfg.river_density)
         self._compute_climate(cells, width, height, sea_level, cfg)
         self._assign_biomes(cells, sea_level)
@@ -169,72 +231,14 @@ class RegionalTerrainGenerator:
             sea_level=sea_level,
         )
 
-    # -- 1. Voronoi cells (pure numpy) -----------------------------------
-
-    def _sample_seeds(self, width: int, height: int, n: int) -> np.ndarray:
-        """Jittered-grid seed points — even coverage without clumping."""
-        cols = max(1, int(round(math.sqrt(n * width / max(1, height)))))
-        rows = max(1, int(math.ceil(n / cols)))
-        cw, ch = width / cols, height / rows
-        pts = []
-        for r in range(rows):
-            for c in range(cols):
-                jx = self._rng.random()
-                jy = self._rng.random()
-                pts.append(((c + jx) * cw, (r + jy) * ch))
-        return np.array(pts[:n] if len(pts) >= n else pts, dtype=float)
-
-    def _voronoi(
-        self, width: int, height: int, seeds: np.ndarray, relax: int
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """Assign every grid cell to its nearest seed, with Lloyd relaxation."""
-        xs, ys = np.meshgrid(np.arange(width), np.arange(height))
-        coords = np.stack([xs.ravel(), ys.ravel()], axis=1).astype(float)
-        cell_of = self._nearest(coords, seeds).reshape(height, width)
-
-        for _ in range(relax):
-            # Move each seed to its region's centroid, then reassign.
-            new_seeds = seeds.copy()
-            flat = cell_of.ravel()
-            for cid in range(len(seeds)):
-                mask = flat == cid
-                if mask.any():
-                    new_seeds[cid] = coords[mask].mean(axis=0)
-            seeds = new_seeds
-            cell_of = self._nearest(coords, seeds).reshape(height, width)
-        return cell_of, seeds
-
-    @staticmethod
-    def _nearest(coords: np.ndarray, seeds: np.ndarray) -> np.ndarray:
-        """Nearest-seed index per coord, computed in blocks to bound memory."""
-        p, n = coords.shape[0], seeds.shape[0]
-        out = np.empty(p, dtype=np.int32)
-        block = max(1, int(4_000_000 / max(1, n)))  # ~4M float cap per block
-        for start in range(0, p, block):
-            chunk = coords[start : start + block]
-            d2 = ((chunk[:, None, :] - seeds[None, :, :]) ** 2).sum(axis=2)
-            out[start : start + block] = d2.argmin(axis=1)
-        return out
+    # -- 1. Voronoi cells (shared geometry) ------------------------------
 
     def _build_cells(self, seeds: np.ndarray, cell_of: np.ndarray) -> list[TerrainCell]:
         """Construct cells with centroids and grid-adjacency neighbours."""
         cells = [TerrainCell(id=i, cx=float(s[0]), cy=float(s[1])) for i, s in enumerate(seeds)]
-        neigh: list[set[int]] = [set() for _ in seeds]
-        # Two cells are adjacent if they touch horizontally or vertically.
-        a = cell_of[:, :-1]
-        b = cell_of[:, 1:]
-        for u, v in np.unique(np.stack([a.ravel(), b.ravel()], axis=1), axis=0):
-            if u != v:
-                neigh[u].add(int(v))
-                neigh[v].add(int(u))
-        a = cell_of[:-1, :]
-        b = cell_of[1:, :]
-        for u, v in np.unique(np.stack([a.ravel(), b.ravel()], axis=1), axis=0):
-            if u != v:
-                neigh[u].add(int(v))
-                neigh[v].add(int(u))
+        adjacency = _geometry.grid_adjacency(cell_of, len(seeds))
         for cell in cells:
-            cell.neighbors = sorted(neigh[cell.id])
+            cell.neighbors = adjacency[cell.id]
         return cells
 
     # -- 2. Heightmap primitives -----------------------------------------
@@ -375,15 +379,15 @@ class RegionalTerrainGenerator:
         rivers: list[River] = []
         used: set[int] = set()
         sources = sorted(
-            (c for c in cells if not c.is_water and c.flux >= cutoff),
+            (c for c in cells if not c.is_water and not c.is_lake and c.flux >= cutoff),
             key=lambda c: c.flux, reverse=True,
         )
         for src in sources:
             if src.id in used:
                 continue
             path, cur = [], src
-            # Follow the trunk downhill to the sea (or into an existing river).
-            while cur is not None and not cur.is_water:
+            # Follow the trunk downhill to the sea or into a lake (or an existing river).
+            while cur is not None and not cur.is_water and not cur.is_lake:
                 path.append(cur.id)
                 if cur.id in used:
                     break  # merged into a previously traced river
@@ -394,6 +398,35 @@ class RegionalTerrainGenerator:
                     cells[cid].is_river = True
                 rivers.append(River(cells=path, width=math.sqrt(src.flux)))
         return rivers
+
+    # -- 5b. Lakes -------------------------------------------------------
+
+    @staticmethod
+    def _assign_lakes(cells: list[TerrainCell], sea_level: float, lake_density: float) -> None:
+        """Flag inland *hollows* as lakes — interior land cells that sit lower than
+        most of their neighbours and collect real flow, so water would pool there.
+
+        (The depression-fill leaves basins nearly flat, so a fill-depth test finds
+        almost nothing; ranking hollows by accumulated flux is the reliable signal.)
+        ``lake_density`` scales how many of the ranked hollows fill."""
+        if lake_density <= 0:
+            return
+        interior = [
+            c for c in cells
+            if not c.is_water and c.height >= sea_level
+            and not any(cells[n].is_water for n in c.neighbors)
+        ]
+        hollows = [
+            c for c in interior
+            if c.neighbors
+            and sum(1 for n in c.neighbors if cells[n].height > c.height + 1e-6)
+            >= 0.6 * len(c.neighbors)
+            and c.flux >= 3.0
+        ]
+        hollows.sort(key=lambda c: c.flux, reverse=True)
+        k = round(lake_density * len(interior) * 0.06)
+        for c in hollows[:k]:
+            c.is_lake = True
 
     # -- 6. Climate ------------------------------------------------------
 
@@ -411,12 +444,12 @@ class RegionalTerrainGenerator:
             temp += cfg.temperature                        # global bias
             c.temperature = float(np.clip(temp + self._rng.fuzzy(0, 0.05), 0.0, 1.0))
 
-        # Moisture: multi-source BFS hop-distance from water over the cell graph,
-        # decaying inland; rivers add local moisture.
+        # Moisture: multi-source BFS hop-distance from water (sea, lakes, rivers
+        # feed the air) over the cell graph, decaying inland.
         dist = {c.id: math.inf for c in cells}
         q: deque[int] = deque()
         for c in cells:
-            if c.is_water:
+            if c.is_water or c.is_lake:
                 dist[c.id] = 0
                 q.append(c.id)
         while q:
@@ -425,13 +458,45 @@ class RegionalTerrainGenerator:
                 if dist[n] > dist[cid] + 1:
                     dist[n] = dist[cid] + 1
                     q.append(n)
+
+        # Rain shadow: a prevailing wind carries moisture inland; air rising over
+        # high terrain precipitates (wet windward slopes) and arrives dry on the
+        # lee, so each cell's "exposure" is the moisture still carried by the air
+        # reaching it. Swept upwind→downwind over the cell graph.
+        exposure = self._rain_shadow(cells)
+
         scale = max(3.0, (width + height) / 12.0)
         for c in cells:
             base = math.exp(-dist[c.id] / scale)
             if c.is_river:
                 base = min(1.0, base + 0.35)
-            base += cfg.moisture * 0.5  # global bias
+            base *= 0.55 + 0.45 * exposure[c.id]  # attenuate in the rain shadow
+            base += cfg.moisture * 0.5            # global bias
             c.moisture = float(np.clip(base + self._rng.fuzzy(0, 0.05), 0.0, 1.0))
+
+    def _rain_shadow(self, cells: list[TerrainCell]) -> dict[int, float]:
+        """Per-cell air moisture (0..1) after orographic loss, swept along a
+        prevailing wind. Water cells start saturated; land cells inherit the air
+        from their wettest upwind neighbour minus what rising terrain wrings out."""
+        wind = self._rng.uniform(0.0, 2.0 * math.pi)
+        wx, wy = math.cos(wind), math.sin(wind)
+        proj = {c.id: c.cx * wx + c.cy * wy for c in cells}
+        exposure: dict[int, float] = {}
+        carried: dict[int, float] = {}
+        for c in sorted(cells, key=lambda c: proj[c.id]):  # upwind → downwind
+            if c.is_water or c.is_lake:
+                exposure[c.id] = carried[c.id] = 1.0
+                continue
+            # Air arrives from the wettest strictly-upwind neighbour.
+            air, src_h = 0.5, c.height
+            for nid in c.neighbors:
+                if proj[nid] < proj[c.id] and carried.get(nid, -1.0) > air:
+                    air, src_h = carried[nid], cells[nid].height
+            rise = max(0.0, c.height - src_h)         # uplift across this step
+            precip = air * min(1.0, 0.12 + rise * 6.0)  # mountains wring out more
+            exposure[c.id] = air
+            carried[c.id] = max(0.0, air - precip)
+        return exposure
 
     # -- 7. Biome assignment ---------------------------------------------
 
@@ -442,6 +507,9 @@ class RegionalTerrainGenerator:
                 # Shoreline water (touching land) reads as coast/shallows.
                 touches_land = any(n not in water_ids for n in c.neighbors)
                 c.biome = Biome.COAST if touches_land else Biome.OCEAN
+                continue
+            if c.is_lake:
+                c.biome = Biome.LAKE
                 continue
             if c.is_river:
                 c.biome = Biome.RIVER
@@ -484,59 +552,19 @@ class RegionalTerrainGenerator:
 # ---------------------------------------------------------------------------
 # Voronoi polygon reconstruction (for vector/SVG rendering).
 #
-# The cell graph stores only centroids + adjacency, so for vector output we
-# rebuild each cell's convex polygon by clipping the map rectangle with the
-# perpendicular bisector between the cell and each of its neighbours
-# (Sutherland–Hodgman half-plane clipping). Pure Python, no scipy — exact for
-# the relaxed seed sites we generate.
+# Cells store only centroids + adjacency, so vector output rebuilds each cell's
+# convex polygon by half-plane clipping (see :mod:`mapwright._geometry`). This is
+# a thin, terrain-typed wrapper over the shared primitive so the public API and
+# the dungeon/settlement tiers share one implementation.
 # ---------------------------------------------------------------------------
 
 Point = tuple[float, float]
-
-
-def _clip_halfplane(poly: list[Point], mx: float, my: float, ax: float, ay: float) -> list[Point]:
-    """Keep the part of ``poly`` on the ``c`` side of a bisector.
-
-    The half-plane is ``{p : (p - m)·a <= 0}`` where ``m`` is the bisector
-    midpoint and ``a`` points from the cell toward its neighbour.
-    """
-    def inside(p: Point) -> bool:
-        return (p[0] - mx) * ax + (p[1] - my) * ay <= 1e-9
-
-    def intersect(a: Point, b: Point) -> Point:
-        dx, dy = b[0] - a[0], b[1] - a[1]
-        denom = dx * ax + dy * ay
-        if abs(denom) < 1e-12:
-            return a
-        t = ((mx - a[0]) * ax + (my - a[1]) * ay) / denom
-        return (a[0] + t * dx, a[1] + t * dy)
-
-    out: list[Point] = []
-    n = len(poly)
-    for i in range(n):
-        a, b = poly[i], poly[(i + 1) % n]
-        a_in, b_in = inside(a), inside(b)
-        if a_in:
-            out.append(a)
-        if a_in != b_in:
-            out.append(intersect(a, b))
-    return out
 
 
 def compute_cell_polygons(
     cells: list[TerrainCell], width: int, height: int
 ) -> dict[int, list[Point]]:
     """Return a convex polygon (list of points) for each cell, clipped to the map."""
-    rect: list[Point] = [(0.0, 0.0), (float(width), 0.0),
-                         (float(width), float(height)), (0.0, float(height))]
-    polys: dict[int, list[Point]] = {}
-    for c in cells:
-        poly = rect
-        for nid in c.neighbors:
-            n = cells[nid]
-            mx, my = (c.cx + n.cx) / 2, (c.cy + n.cy) / 2
-            poly = _clip_halfplane(poly, mx, my, n.cx - c.cx, n.cy - c.cy)
-            if len(poly) < 3:
-                break
-        polys[c.id] = poly
-    return polys
+    centroids = {c.id: (c.cx, c.cy) for c in cells}
+    neighbors = {c.id: c.neighbors for c in cells}
+    return _geometry.voronoi_polygons(centroids, neighbors, width, height)

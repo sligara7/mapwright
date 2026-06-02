@@ -26,8 +26,22 @@ Quickstart::
 
 from .config import WorldMapConfig, PRESETS
 from .dungeon import Dungeon, DungeonConfig, DungeonGenerator, Rect
+from .dungeon_renderer import DungeonSVGRenderer
 from .names import NameGenerator, MarkovNameGenerator, NAMEBASES
+from .regions import Region, RegionGenerator
 from .rng import SeededRNG
+from .roads import Road, RegionalRoadGenerator
+from .settlement import (
+    Lot,
+    Settlement,
+    SettlementConfig,
+    SettlementGenerator,
+    Street,
+    Wall,
+    Ward,
+    SETTLEMENT_PRESETS,
+)
+from .settlement_renderer import SettlementSVGRenderer
 from .svg_renderer import Marker, RegionalSVGRenderer
 from .terrain import (
     Biome,
@@ -38,7 +52,7 @@ from .terrain import (
     compute_cell_polygons,
 )
 
-__version__ = "0.2.0"
+__version__ = "0.10.0"
 
 __all__ = [
     "SeededRNG",
@@ -55,8 +69,22 @@ __all__ = [
     "compute_cell_polygons",
     "Marker",
     "RegionalSVGRenderer",
+    "Road",
+    "RegionalRoadGenerator",
+    "Region",
+    "RegionGenerator",
     "Dungeon",
     "DungeonConfig",
     "DungeonGenerator",
+    "DungeonSVGRenderer",
     "Rect",
+    "Settlement",
+    "SettlementConfig",
+    "SettlementGenerator",
+    "SettlementSVGRenderer",
+    "Ward",
+    "Lot",
+    "Street",
+    "Wall",
+    "SETTLEMENT_PRESETS",
 ]

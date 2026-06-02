@@ -43,6 +43,8 @@ _SPEC: list[tuple] = [
      "Global moisture bias: -1 arid .. +1 drowned."),
     ("river_density", float, 0.0, 1.0,
      "How readily rivers are traced; more = more, smaller rivers."),
+    ("lake_density", float, 0.0, 1.0,
+     "How readily inland basins fill into lakes; more = more, shallower lakes."),
 ]
 
 
@@ -75,6 +77,8 @@ class WorldMapConfig:
     # --- Hydrology ---
     river_density: float = 0.5
     """0..1 — how readily rivers are traced (more ⇒ more, smaller rivers)."""
+    lake_density: float = 0.5
+    """0..1 — how readily inland basins fill into lakes (more ⇒ more lakes)."""
 
     def __post_init__(self) -> None:
         # Clamp everything so out-of-range inputs (e.g. from an LLM) are safe.
@@ -145,7 +149,7 @@ PRESETS: dict[str, dict] = {
     "highlands": {"continents": 1, "mountain_density": 0.95, "roughness": 0.75,
                   "river_density": 0.7},
     "desert": {"temperature": 0.85, "moisture": -0.85, "sea_level": 0.28,
-               "mountain_density": 0.25, "river_density": 0.12},
+               "mountain_density": 0.25, "river_density": 0.12, "lake_density": 0.1},
     "arctic": {"temperature": -0.85, "moisture": 0.1, "mountain_density": 0.5},
     "tropical": {"temperature": 0.6, "moisture": 0.85, "river_density": 0.85,
                  "mountain_density": 0.55},

@@ -24,5 +24,12 @@ copied from them; this NOTICE credits the lineage of the techniques.
     slope^2), Planchon-Darboux depression filling for guaranteed drainage,
     slope-normal hillshade ("shaded relief") rendering.
 
+* Watabou's TownGeneratorOS (GPLv3)
+    https://github.com/watabou/TownGeneratorOS
+    Concept only (NO code derived — GPLv3 is incompatible with this MIT
+    project): the high-level idea of generating a town as an organic footprint
+    subdivided into Voronoi wards. mapwright's settlement code is an independent
+    clean-room implementation built on its own geometry primitives.
+
 The name lists ("namebases") bundled with mapwright are original, hand-authored
 data, not derived from any third-party generator.

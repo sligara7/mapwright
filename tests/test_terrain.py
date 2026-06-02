@@ -2,8 +2,9 @@
 
 
 
+from mapwright.config import WorldMapConfig
 from mapwright.rng import SeededRNG
-from mapwright.terrain import RegionalTerrainGenerator
+from mapwright.terrain import Biome, RegionalTerrainGenerator
 
 
 def _gen(seed: int, w: int = 30, h: int = 30, **kw):
@@ -91,6 +92,53 @@ class TestTerrainRealism:
         for river in result.rivers:
             assert len(river.cells) >= 2
             assert river.width > 0
+
+
+class TestLakes:
+    def _lake_cells(self, cfg, seed=7, w=70, h=50):
+        cells = _gen(seed, w, h, config=cfg).cells
+        return [c for c in cells if c.is_lake]
+
+    def test_lakes_appear_with_high_density(self):
+        # Across several seeds, a high lake_density produces at least some lakes.
+        total = sum(len(self._lake_cells(WorldMapConfig(lake_density=1.0), seed=s))
+                    for s in range(6))
+        assert total > 0
+
+    def test_more_lakes_with_higher_density(self):
+        few = sum(len(self._lake_cells(WorldMapConfig(lake_density=0.0), seed=s))
+                  for s in range(8))
+        many = sum(len(self._lake_cells(WorldMapConfig(lake_density=1.0), seed=s))
+                   for s in range(8))
+        assert many >= few
+
+    def test_lakes_are_inland_water_not_ocean(self):
+        cfg = WorldMapConfig(lake_density=1.0)
+        for c in self._lake_cells(cfg):
+            assert not c.is_water            # not the sea
+            assert c.height >= cfg.sea_level  # at land elevation
+            assert c.biome == Biome.LAKE
+
+    def test_lake_cells_are_not_rivers(self):
+        cfg = WorldMapConfig(lake_density=1.0)
+        assert all(not c.is_river for c in self._lake_cells(cfg))
+
+
+class TestRainShadow:
+    def test_moisture_is_deterministic(self):
+        a = [c.moisture for c in _gen(7, 50, 40).cells]
+        b = [c.moisture for c in _gen(7, 50, 40).cells]
+        assert a == b
+
+    def test_moisture_varies_across_the_map(self):
+        # Rain shadow (plus water-distance decay) gives a real wet/dry spread, not
+        # a uniform field.
+        cfg = WorldMapConfig(mountain_density=0.9)
+        ms = [c.moisture for c in _gen(3, 60, 44, config=cfg).cells if not c.is_water]
+        assert max(ms) - min(ms) > 0.3
+
+    def test_moisture_in_unit_range(self):
+        assert all(0.0 <= c.moisture <= 1.0 for c in _gen(5, 40, 40).cells)
 
 
 class TestParameters:

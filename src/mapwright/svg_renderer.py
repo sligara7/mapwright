@@ -16,9 +16,10 @@ from __future__ import annotations
 
 import math
 import xml.sax.saxutils as su
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Optional, Sequence
 
+from . import _serde
 from .terrain import Biome, TerrainCell, TerrainResult, compute_cell_polygons
 
 
@@ -37,6 +38,22 @@ class Marker:
     y: float
     kind: str = ""
 
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Marker":
+        return cls(**_serde.only_known(cls, data))
+
+    def to_json(self, **kwargs) -> str:
+        """Serialise to a JSON string (``kwargs`` pass to :func:`json.dumps`)."""
+        return _serde.to_json(self, **kwargs)
+
+    @classmethod
+    def from_json(cls, text: str) -> "Marker":
+        return _serde.from_json(cls, text)
+
+
 # Base biome fill colours (before relief shading), tuned for a parchment-ish
 # fantasy palette rather than the dungeon tile colours.
 _BIOME_RGB: dict[Biome, tuple[int, int, int]] = {
@@ -52,11 +69,16 @@ _BIOME_RGB: dict[Biome, tuple[int, int, int]] = {
     Biome.TUNDRA: (188, 196, 180),
     Biome.SNOW: (240, 244, 248),
     Biome.RIVER: (127, 168, 106),  # riverbank green; the river line draws on top
+    Biome.LAKE: (96, 152, 184),    # inland freshwater — lighter than coast, distinct from sea
 }
 
 _OCEAN_BG = (24, 62, 86)
 _COASTLINE = (40, 54, 64)
 _RIVER_COLOR = (74, 130, 175)
+_ROAD_COLOR = (110, 78, 50)        # dirt-road brown
+_ROAD_CASING = (245, 238, 222)     # pale casing so roads read over any biome
+_REGION_BORDER = (120, 36, 44)     # political boundary (dark crimson)
+_REGION_LABEL = (74, 24, 30)
 
 _SETTLEMENT_RADIUS = {
     "settlement_city": 5.5,
@@ -96,6 +118,8 @@ class RegionalSVGRenderer:
         terrain: TerrainResult,
         markers: Optional[Sequence[Marker]] = None,
         *,
+        roads: Optional[Sequence] = None,
+        regions: Optional[Sequence] = None,
         show_relief: bool = True,
         show_labels: bool = True,
     ) -> str:
@@ -126,10 +150,18 @@ class RegionalSVGRenderer:
         # 2. Coastline — edges of land cells that border the sea.
         parts.append(self._coastline_svg(terrain, polys))
 
+        # 2b. Region borders — political boundaries between territories.
+        if regions:
+            parts.append(self._regions_svg(terrain, polys, regions, show_labels))
+
         # 3. Rivers — downhill polylines, width by discharge.
         parts.append(self._rivers_svg(terrain))
 
-        # 4. Settlements.
+        # 4. Roads — terrain-routed trade routes between settlements.
+        if roads:
+            parts.append(self._roads_svg(terrain, roads))
+
+        # 5. Settlements.
         if markers:
             parts.append(self._settlements_svg(markers, show_labels))
 
@@ -143,7 +175,7 @@ class RegionalSVGRenderer:
         out: dict[int, float] = {}
         lx, ly, lz = self._light
         for c in cells:
-            if c.is_water:
+            if c.is_water or c.is_lake:  # flat water surfaces take no hillshade
                 out[c.id] = 1.0
                 continue
             gx = gy = 0.0
@@ -206,6 +238,63 @@ class RegionalSVGRenderer:
         return (f'<path d="{" ".join(segs)}" fill="none" stroke="{_rgb(_COASTLINE)}" '
                 f'stroke-width="2.0" stroke-linecap="round"/>')
 
+    # -- regions ---------------------------------------------------------
+
+    def _regions_svg(self, terrain: TerrainResult, polys, regions, labels: bool) -> str:
+        s = self.scale
+        cells = terrain.cells
+        cell_region: dict[int, int] = {}
+        for r in regions:
+            for cid in r.cells:
+                cell_region[cid] = r.id
+
+        segs: list[str] = []
+        eps = 1e-6
+        w, h = terrain.width, terrain.height
+        for c in cells:
+            rid = cell_region.get(c.id)
+            if rid is None:
+                continue
+            poly = polys.get(c.id)
+            if not poly or len(poly) < 3:
+                continue
+            n = len(poly)
+            for i in range(n):
+                a, b = poly[i], poly[(i + 1) % n]
+                mx, my = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
+                if mx < eps or my < eps or mx > w - eps or my > h - eps:
+                    continue
+                nb = min(c.neighbors,
+                         key=lambda k: (cells[k].cx - mx) ** 2 + (cells[k].cy - my) ** 2,
+                         default=None)
+                if nb is None or cells[nb].is_water:
+                    continue  # the sea edge is the coastline, not a political border
+                nrid = cell_region.get(nb)
+                if nrid == rid:
+                    continue
+                # Draw each shared border once (lower region id, or vs unassigned land).
+                if nrid is None or rid < nrid:
+                    segs.append(f'M{a[0] * s:.1f},{a[1] * s:.1f} '
+                                f'L{b[0] * s:.1f},{b[1] * s:.1f}')
+
+        out: list[str] = []
+        if segs:
+            out.append(f'<path d="{" ".join(segs)}" fill="none" '
+                       f'stroke="{_rgb(_REGION_BORDER)}" stroke-width="2.2" '
+                       f'stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>')
+        if labels:
+            out.append('<g font-family="Georgia, serif" font-size="12" '
+                       'text-anchor="middle" font-style="italic">')
+            for r in regions:
+                cap = cells[r.capital]
+                out.append(
+                    f'<text x="{cap.cx * s:.1f}" y="{cap.cy * s:.1f}" '
+                    f'stroke="#f7f3ea" stroke-width="3" paint-order="stroke" '
+                    f'fill="{_rgb(_REGION_LABEL)}">{su.escape(r.name)}</text>'
+                )
+            out.append("</g>")
+        return "".join(out)
+
     # -- rivers ----------------------------------------------------------
 
     def _rivers_svg(self, terrain: TerrainResult) -> str:
@@ -224,6 +313,29 @@ class RegionalSVGRenderer:
         if not paths:
             return ""
         return '<g opacity="0.9">' + "".join(paths) + "</g>"
+
+    # -- roads -----------------------------------------------------------
+
+    def _roads_svg(self, terrain: TerrainResult, roads: Sequence) -> str:
+        s = self.scale
+        cells = terrain.cells
+        ds: list[str] = []
+        for road in roads:
+            if len(road.cells) < 2:
+                continue
+            pts = [(cells[i].cx * s, cells[i].cy * s) for i in road.cells]
+            ds.append("M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in pts))
+        if not ds:
+            return ""
+        d = " ".join(ds)
+        # Pale casing under a brown surface so routes read over any biome.
+        return (
+            '<g fill="none" stroke-linecap="round" stroke-linejoin="round">'
+            f'<path d="{d}" stroke="{_rgb(_ROAD_CASING)}" stroke-width="3.4" opacity="0.7"/>'
+            f'<path d="{d}" stroke="{_rgb(_ROAD_COLOR)}" stroke-width="1.6" '
+            f'stroke-dasharray="5,3"/>'
+            "</g>"
+        )
 
     # -- settlements -----------------------------------------------------
 

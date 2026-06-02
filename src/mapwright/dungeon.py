@@ -15,10 +15,11 @@ seed-deterministic via :class:`SeededRNG`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 
 import numpy as np
 
+from . import _graph, _serde
 from .rng import SeededRNG
 
 
@@ -50,6 +51,13 @@ class Rect:
             and self.y - pad < other.y + other.h
             and self.y + self.h + pad > other.y
         )
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Rect":
+        return cls(**_serde.only_known(cls, data))
 
 
 @dataclass
@@ -85,6 +93,40 @@ class Dungeon:
         for y in range(self.height):
             rows.append("".join("." if self.grid[y, x] else "#" for x in range(self.width)))
         return "\n".join(rows)
+
+    # -- serialisation / interop ----------------------------------------
+
+    def to_dict(self) -> dict:
+        """A JSON-safe mapping of the dungeon, round-tripping via :meth:`from_dict`
+        (the walkable grid is stored as nested booleans)."""
+        return {
+            "schema": "mapwright/dungeon@1",
+            "width": self.width,
+            "height": self.height,
+            "rooms": [r.to_dict() for r in self.rooms],
+            "corridors": [[x, y] for x, y in self.corridors],
+            "grid": self.grid.tolist(),
+            "edges": [[i, j] for i, j in self.edges],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Dungeon":
+        return cls(
+            width=int(data["width"]),
+            height=int(data["height"]),
+            rooms=[Rect.from_dict(r) for r in data["rooms"]],
+            corridors=[(int(x), int(y)) for x, y in data["corridors"]],
+            grid=np.asarray(data["grid"], dtype=bool),
+            edges=[(int(i), int(j)) for i, j in data["edges"]],
+        )
+
+    def to_json(self, **kwargs) -> str:
+        """Serialise to a JSON string (``kwargs`` pass to :func:`json.dumps`)."""
+        return _serde.to_json(self, **kwargs)
+
+    @classmethod
+    def from_json(cls, text: str) -> "Dungeon":
+        return _serde.from_json(cls, text)
 
 
 class DungeonGenerator:
@@ -175,20 +217,7 @@ class DungeonGenerator:
             return (ax - bx) ** 2 + (ay - by) ** 2
 
         # Prim's MST over room centers (dense graph, n is small).
-        in_tree = {0}
-        while len(in_tree) < n:
-            best = None
-            best_d = None
-            for i in in_tree:
-                for j in range(n):
-                    if j in in_tree:
-                        continue
-                    d = dist2(i, j)
-                    if best_d is None or d < best_d:
-                        best_d, best = d, (i, j)
-            i, j = best
-            in_tree.add(j)
-            edges.append((i, j))
+        edges = _graph.prim_mst(n, dist2)
 
         # A few extra edges → loops (less tree-like, more interesting).
         for i in range(n):

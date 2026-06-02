@@ -25,3 +25,6 @@ htmlcov/
 # Generated preview artifacts
 *.preview.svg
 *.preview.png
+
+# Local working notes (roadmap, scratch)
+*.local.md

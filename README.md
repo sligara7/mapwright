@@ -1,6 +1,6 @@
 # mapwright
 
-> ⚠️ **Early development (v0.1, alpha).** The API is still moving and may change without
+> ⚠️ **Early development (v0.x, alpha).** The API is still moving and may change without
 > notice between versions. Extracted from a working application; usable today, but pin a
 > commit if you depend on it.
 
@@ -11,6 +11,42 @@ SVG rendering. Pure Python, `numpy`-only, fully seed-deterministic.
 mapwright produces *neutral data* (cells, biomes, rivers, polygons) and a self-contained
 SVG renderer. It has no opinion about your application's models — map its output onto your
 own tiles/entities however you like.
+
+## Gallery
+
+Every image below is a deterministic render of a built-in preset (or a dungeon),
+produced by [`examples/gallery.py`](examples/gallery.py):
+
+<table>
+<tr>
+<td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/continent.png" alt="continent preset"><br><sub><code>continent</code></sub></td>
+<td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/archipelago.png" alt="archipelago preset"><br><sub><code>archipelago</code></sub></td>
+<td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/islands.png" alt="islands preset"><br><sub><code>islands</code></sub></td>
+</tr>
+<tr>
+<td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/highlands.png" alt="highlands preset"><br><sub><code>highlands</code></sub></td>
+<td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/desert.png" alt="desert preset"><br><sub><code>desert</code></sub></td>
+<td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/arctic.png" alt="arctic preset"><br><sub><code>arctic</code></sub></td>
+</tr>
+<tr>
+<td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/pangaea.png" alt="pangaea preset"><br><sub><code>pangaea</code></sub></td>
+<td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/tropical.png" alt="tropical preset"><br><sub><code>tropical</code></sub></td>
+<td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/dungeon.png" alt="generated dungeon"><br><sub><code>DungeonGenerator</code></sub></td>
+</tr>
+<tr>
+<td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/town.png" alt="generated town"><br><sub><code>SettlementGenerator</code></sub></td>
+<td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/port.png" alt="generated coastal port"><br><sub><code>Settlement (port)</code></sub></td>
+<td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/citadel.png" alt="generated walled citadel"><br><sub><code>Settlement (citadel)</code></sub></td>
+</tr>
+<tr>
+<td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/roads.png" alt="settlements linked by terrain-routed roads"><br><sub><code>RegionalRoadGenerator</code></sub></td>
+<td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/regions.png" alt="land partitioned into named territories"><br><sub><code>RegionGenerator</code></sub></td>
+<td></td>
+</tr>
+</table>
+
+Regenerate them with `python examples/gallery.py` (SVGs always; PNGs when
+`cairosvg` is installed).
 
 ## Install
 
@@ -50,6 +86,20 @@ WorldMapConfig.from_dict({"temperature": 5, "continents": -3})  # -> safe, clamp
 Presets: `continent`, `pangaea`, `archipelago`, `islands`, `highlands`, `desert`,
 `arctic`, `tropical`.
 
+Save and reload worlds (and dungeons) — JSON round-trips losslessly, so a reloaded
+world renders byte-identically:
+
+```python
+from mapwright import RegionalTerrainGenerator, SeededRNG, TerrainResult
+
+terrain = RegionalTerrainGenerator(SeededRNG(7)).generate(60, 40)
+open("world.json", "w").write(terrain.to_json())          # ...later...
+same = TerrainResult.from_json(open("world.json").read())  # bit-identical
+```
+
+`to_dict`/`from_dict` (and `to_json`/`from_json`) are available on `TerrainResult`,
+`Dungeon`, and `Marker`. Numpy rasters and full-precision floats are preserved.
+
 Procedural place-names in several culture styles:
 
 ```python
@@ -61,16 +111,47 @@ namer.settlement("elvish")    # -> 'Faelynnwood'
 namer.region("dwarvish")      # -> 'The Korvald Reach'
 ```
 
+Generate a dungeon and render it:
+
+```python
+from mapwright import SeededRNG, DungeonGenerator, DungeonSVGRenderer
+
+dungeon = DungeonGenerator(SeededRNG(3)).generate(48, 32)
+svg = DungeonSVGRenderer().render(dungeon, labels=True)  # number the rooms
+open("dungeon.svg", "w").write(svg)
+print(dungeon.ascii())  # or eyeball it as text
+```
+
+Generate a town — an organic footprint split into named wards, each subdivided
+into building lots, threaded with streets, and optionally walled (try the
+`port` and `citadel` presets):
+
+```python
+from mapwright import SeededRNG, SettlementGenerator, SettlementConfig, SettlementSVGRenderer
+
+town    = SettlementGenerator(SeededRNG(7)).generate(90, 90)
+port    = SettlementGenerator(SeededRNG(5)).generate(90, 90, SettlementConfig.preset("port"))
+citadel = SettlementGenerator(SeededRNG(3)).generate(90, 90, SettlementConfig.preset("citadel"))
+open("town.svg", "w").write(SettlementSVGRenderer().render(town))
+```
+
+Settlement presets: `hamlet`, `village`, `town`, `city`, `port`, `citadel`.
+
 ## What's inside
 
 | Component | What it does |
 |-----------|--------------|
 | `SeededRNG` | One seed drives everything; `.derive(label)` yields independent, reproducible sub-streams (unifies stdlib + numpy). |
 | `NameGenerator` | Order-k character Markov names over hand-authored culture namebases; reproducible across processes. |
-| `RegionalTerrainGenerator` | Voronoi cells (Lloyd-relaxed) → heightmap → Planchon–Darboux depression fill → flux + hydraulic/creep erosion → rivers → latitude/elevation climate → Whittaker biomes. |
+| `RegionalTerrainGenerator` | Voronoi cells (Lloyd-relaxed) → heightmap → Planchon–Darboux depression fill → flux + hydraulic/creep erosion → rivers + inland lakes → latitude/elevation climate with **rain-shadow** → Whittaker biomes. |
 | `compute_cell_polygons` | Reconstructs convex Voronoi polygons (half-plane clipping) for vector rendering. |
-| `RegionalSVGRenderer` | Shaded-relief (hillshade) SVG: biome polygons, coastline, rivers, labelled markers. |
+| `RegionalSVGRenderer` | Shaded-relief (hillshade) SVG: biome polygons, coastline, rivers, roads, labelled markers. |
+| `RegionalRoadGenerator` | Connects settlement sites with trade routes — an MST whose edges are A*-routed over the terrain (avoids sea, climbs/crosses rivers at a cost). |
+| `RegionGenerator` | Partitions land into named factions/territories: spread capitals seed a flood fill over the land graph (sea divides them); each `Region` is Markov-named. |
 | `DungeonGenerator` | BSP-partitioned rooms + minimum-spanning-tree corridors → rooms, corridor cells, and a walkable grid (with `Dungeon.ascii()`). |
+| `DungeonSVGRenderer` | Renders a `Dungeon` to SVG: walls, carved floor, room outlines, optional tile grid and per-room labels. |
+| `SettlementGenerator` | Self-contained town layout: an organic footprint divided into named Voronoi **wards** (market, docks, …), each subdivided into building **lots**, a **street** network (MST over ward adjacency + main roads from gates to the market), an optional defensive **wall** (towers + gate gaps, opened at the harbour when coastal), and optional coastline. |
+| `SettlementSVGRenderer` | Renders a `Settlement` to SVG: sea, footprint, kind-coloured wards, building lots, streets, wall with towers/gatehouses, labels. |
 
 Everything is neutral: `RegionalTerrainGenerator` returns a `TerrainResult` of `TerrainCell`s
 (each with a `Biome`), and you decide how a `Biome` maps to your world.
@@ -80,6 +161,30 @@ Everything is neutral: `RegionalTerrainGenerator` returns a `TerrainResult` of `
 Every generator draws from a `SeededRNG`. The same seed (and parameters) reproduces an
 identical world — terrain, names, rivers, and SVG — across runs *and across processes*
 (the Markov chains are built in sorted order, so output never depends on `PYTHONHASHSEED`).
+
+## Performance
+
+Pure Python + numpy, single-threaded. Typical map/town sizes generate in well under a
+second; `examples/benchmark.py` prints a table for your machine. Rough figures (numbers
+are machine-dependent):
+
+| Generator | Size | Time |
+|-----------|------|------|
+| Terrain | 64×44 (≈470 cells) | ~150 ms |
+| Terrain | 120×90 (1500 cells, capped) | ~1.8 s |
+| Dungeon | 80×60 (≈50 rooms) | ~9 ms |
+| Settlement | pop 9000 (50 wards, ~1100 lots) | ~65 ms |
+| Roads / regions | on a 120×90 map | a few ms |
+
+Two things worth knowing:
+
+- **Terrain cell count is capped at 1500** (`cell_area` clamp in `generate`), which bounds
+  the hydrology/climate/graph work — but the initial Voronoi *rasterisation* is per-pixel,
+  so total time still grows roughly linearly with `width × height` on large maps. Raise
+  `cell_area` (fewer, coarser cells) to trade detail for speed, e.g.
+  `generate(w, h, cell_area=12)`.
+- **Dungeon corridor connection is a dense MST (~O(rooms³))**, so dungeons with hundreds of
+  rooms get slow — keep them modest or raise `DungeonConfig.min_leaf` for fewer, larger rooms.
 
 ## API stability & contract
 
