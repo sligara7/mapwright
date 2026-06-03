@@ -8,6 +8,24 @@ All notable changes to mapwright are documented here. The format follows
 `tests/test_api_contract.py`). While the version is `0.x`, minor versions may
 make breaking changes; these will always be noted here.
 
+## [0.19.0] — 2026-06-02
+
+### Added
+- **`elevation_hint` — art-direct the continent's shape.**
+  `RegionalTerrainGenerator.generate(..., elevation_hint=…)` lets a host (or an
+  LLM) supply the *macro* land/sea/elevation shape while mapwright fills in
+  organic coastlines, erosion, rivers and climate. Pass a coarse 2D grid (e.g. a
+  16×16 nested list; rows north→south, cols west→east) or a callable
+  `f(x_norm, y_norm) -> elevation` over normalised [0, 1] coords. Only relative
+  ordering matters; `sea_level` still sets how much floods, and the full
+  hydrology/biome pipeline runs on top, so the result stays coherent (rivers
+  form, coasts are organic). Takes precedence over `template`; set
+  `edge_falloff=0` to allow land at the map borders. Purely additive — the
+  default (`elevation_hint=None`) output is byte-identical. This is the
+  most on-philosophy answer to "make shapes non-circular": the caller draws the
+  shape, mapwright does the physics (the mapgen4 hint-map idea, clean-room).
+  Gallery gains a hint-driven crescent continent.
+
 ## [0.18.0] — 2026-06-02
 
 ### Added

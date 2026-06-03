@@ -40,12 +40,19 @@ import math
 from collections import deque
 from dataclasses import asdict, dataclass, field
 from enum import IntEnum
+from typing import Callable, Sequence, Union
 
 import numpy as np
 
 from . import _geometry, _serde
 from .config import WorldMapConfig
 from .rng import SeededRNG
+
+# A caller-supplied macro shape for the land: either a coarse 2D grid of
+# elevations (rows = north→south, cols = west→east; any numeric range — only the
+# relative ordering matters) bilinearly sampled across the map, or a callable
+# ``f(x_norm, y_norm) -> elevation`` taking normalised coords in [0, 1].
+ElevationHint = Union[Sequence[Sequence[float]], np.ndarray, Callable[[float, float], float]]
 
 
 class Biome(IntEnum):
@@ -237,6 +244,7 @@ class RegionalTerrainGenerator:
         cell_area: float = 6.0,
         relax_iterations: int = 2,
         template: str = "",
+        elevation_hint: ElevationHint | None = None,
     ) -> TerrainResult:
         """Run the full pipeline and return terrain for a ``width×height`` grid.
 
@@ -249,6 +257,16 @@ class RegionalTerrainGenerator:
         ``"volcano"``) selects a composed-op heightmap *archetype* instead of the
         default tectonic-plate auto-generation; ``config`` still drives sea level,
         climate, rivers, etc. on top of it.
+
+        ``elevation_hint`` lets a host (or an LLM) **art-direct the macro shape** —
+        where land, sea and high ground sit — while mapwright fills in organic
+        coastlines, erosion, rivers and climate. Pass a coarse 2D grid of
+        elevations (e.g. a 16×16 nested list; rows north→south, cols west→east) or
+        a callable ``f(x_norm, y_norm) -> elevation`` over normalised [0, 1] coords.
+        Only the *relative* ordering of the values matters; ``sea_level`` still sets
+        how much floods (the lowest ``sea_level`` fraction of the hinted surface
+        becomes water). It takes precedence over ``template``. Set
+        ``edge_falloff=0`` in the config to let the hint place land at the borders.
         """
         cfg = config or WorldMapConfig()
         sea_level = cfg.sea_level
@@ -259,7 +277,8 @@ class RegionalTerrainGenerator:
         cell_of, seeds = _geometry.voronoi_grid(width, height, seeds, relax_iterations)
         cells = self._build_cells(seeds, cell_of)
 
-        self._init_heightmap(cells, width, height, cfg, template=template)
+        self._init_heightmap(cells, width, height, cfg, template=template,
+                             elevation_hint=elevation_hint)
         for cell in cells:
             cell.is_water = cell.height < sea_level
 
@@ -336,15 +355,50 @@ class RegionalTerrainGenerator:
             res *= 2
         return total / norm
 
+    def _sample_hint(self, hint: ElevationHint, centroids: np.ndarray,
+                     width: int, height: int) -> np.ndarray:
+        """Sample a caller's elevation hint at each cell centroid → an array of
+        per-cell elevations. ``hint`` is a callable over normalised [0,1] coords,
+        or a 2D grid (rows north→south, cols west→east) bilinearly interpolated."""
+        xn = np.clip(centroids[:, 0] / max(1, width), 0.0, 1.0)
+        yn = np.clip(centroids[:, 1] / max(1, height), 0.0, 1.0)
+        if callable(hint):
+            return np.array([float(hint(float(x), float(y))) for x, y in zip(xn, yn)])
+        grid = np.asarray(hint, dtype=float)
+        if grid.ndim != 2 or grid.size == 0:
+            raise ValueError("elevation_hint grid must be a non-empty 2D array")
+        gh, gw = grid.shape
+        u, v = xn * (gw - 1), yn * (gh - 1)  # fractional grid coords
+        x0, y0 = np.floor(u).astype(int), np.floor(v).astype(int)
+        x1, y1 = np.minimum(x0 + 1, gw - 1), np.minimum(y0 + 1, gh - 1)
+        fx, fy = u - x0, v - y0
+        top = grid[y0, x0] * (1 - fx) + grid[y0, x1] * fx
+        bot = grid[y1, x0] * (1 - fx) + grid[y1, x1] * fx
+        return top * (1 - fy) + bot * fy
+
     def _init_heightmap(
         self, cells: list[TerrainCell], width: int, height: int, cfg: WorldMapConfig,
-        template: str = "",
+        template: str = "", elevation_hint: ElevationHint | None = None,
     ) -> None:
         cx, cy = width / 2, height / 2
         diag = math.hypot(width, height)
         centroids = np.array([[c.cx, c.cy] for c in cells])
         d_true = np.sqrt((centroids[:, 0] - cx) ** 2 + (centroids[:, 1] - cy) ** 2) / (diag / 2)
         n_cells = len(cells)
+
+        # Hint mode (caller art-directs the macro shape) — highest precedence. The
+        # hint sets *where* land/high ground sit; mapwright still adds organic
+        # coastline detail (fbm) and runs the full erosion/hydrology/climate
+        # pipeline. Normalised to [0,1] so any input range works; sea level + the
+        # land_age gamma in _finalize_heights then do their usual job.
+        if elevation_hint is not None:
+            h = self._sample_hint(elevation_hint, centroids, width, height)
+            hmin, hmax = float(h.min()), float(h.max())
+            h = (h - hmin) / max(1e-9, hmax - hmin)
+            coast = (self._fbm(centroids, width, height, octaves=5, base_res=3) - 0.5) * 2.0
+            raw = (h - 0.5) * 2.0 + 0.25 * coast
+            self._finalize_heights(cells, raw, d_true, cfg)
+            return
 
         # Template mode (Azgaar-style composed ops) — an alternative to the default
         # tectonic auto-generation, for controllable continent archetypes.

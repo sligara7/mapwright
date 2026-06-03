@@ -201,6 +201,61 @@ class TestTemplates:
         assert a == b
 
 
+class TestElevationHint:
+    def test_none_hint_is_byte_identical_to_default(self):
+        a = [c.height for c in _gen(7, 40, 28).cells]
+        b = [c.height for c in _gen(7, 40, 28, elevation_hint=None).cells]
+        assert a == b
+
+    def test_grid_hint_places_land_where_painted(self):
+        # West low, east high → land concentrates in the east half.
+        grid = [[0.1, 0.1, 0.9, 0.9] for _ in range(4)]
+        cfg = WorldMapConfig(sea_level=0.5, edge_falloff=0.0)
+        land = [c for c in _gen(7, 40, 28, config=cfg, elevation_hint=grid).cells
+                if not c.is_water]
+        west = sum(1 for c in land if c.cx < 20)
+        east = sum(1 for c in land if c.cx >= 20)
+        assert east > 3 * max(1, west)
+
+    def test_callable_hint_places_land_in_a_central_disk(self):
+        def disk(x, y):
+            return 1.0 - ((x - 0.5) ** 2 + (y - 0.5) ** 2) ** 0.5
+        cfg = WorldMapConfig(sea_level=0.45)
+        land = [c for c in _gen(7, 40, 28, config=cfg, elevation_hint=disk).cells
+                if not c.is_water]
+        mx = sum(c.cx for c in land) / len(land)
+        my = sum(c.cy for c in land) / len(land)
+        assert 15 < mx < 25 and 9 < my < 19   # ~map centre (20, 14)
+
+    def test_hint_is_deterministic(self):
+        grid = [[0.2, 0.8], [0.8, 0.2]]
+        a = [c.height for c in _gen(7, 36, 24, elevation_hint=grid).cells]
+        b = [c.height for c in _gen(7, 36, 24, elevation_hint=grid).cells]
+        assert a == b
+
+    def test_hint_still_forms_rivers_and_water(self):
+        grid = [[0.0, 0.3, 0.0], [0.3, 1.0, 0.3], [0.0, 0.3, 0.0]]
+        t = _gen(7, 70, 50, config=WorldMapConfig(sea_level=0.45), elevation_hint=grid)
+        assert any(c.is_water for c in t.cells)
+        assert any(not c.is_water for c in t.cells)
+        assert t.rivers  # erosion/hydrology still runs on the hinted surface
+
+    def test_hint_takes_precedence_over_template(self):
+        grid = [[0.9, 0.1], [0.9, 0.1]]
+        cfg = WorldMapConfig(edge_falloff=0.0)
+        with_hint = [c.is_water for c in
+                     _gen(7, 40, 28, config=cfg, template="atoll", elevation_hint=grid).cells]
+        just_template = [c.is_water for c in
+                         _gen(7, 40, 28, config=cfg, template="atoll").cells]
+        assert with_hint != just_template
+
+    def test_invalid_hint_raises(self):
+        import pytest
+        for bad in ([1, 2, 3], [], [[]], "nope"):
+            with pytest.raises(ValueError):
+                _gen(1, 24, 18, elevation_hint=bad)
+
+
 class TestParameters:
     def test_higher_sea_level_means_more_water(self):
         from mapwright.config import WorldMapConfig

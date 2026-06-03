@@ -72,6 +72,29 @@ def render_age(land_age: float, seed: int) -> str:
     return RegionalSVGRenderer(scale=MAP_SCALE).render(t)
 
 
+# A coarse 8×8 "painted" land/elevation mask (0 = sea … 1 = high) — the kind of
+# hint a host or LLM hands mapwright to art-direct the continent's macro shape.
+_HINT_MASK = [
+    [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    [0.0, 0.2, 0.5, 0.6, 0.5, 0.2, 0.0, 0.0],
+    [0.0, 0.5, 0.9, 0.7, 0.4, 0.3, 0.2, 0.0],
+    [0.0, 0.6, 0.8, 0.3, 0.0, 0.0, 0.3, 0.0],
+    [0.0, 0.5, 0.6, 0.2, 0.0, 0.0, 0.4, 0.0],
+    [0.0, 0.3, 0.7, 0.6, 0.5, 0.6, 0.7, 0.0],
+    [0.0, 0.0, 0.3, 0.6, 0.8, 0.6, 0.3, 0.0],
+    [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+]
+
+
+def render_hint(seed: int = 11) -> str:
+    """A continent whose macro shape is art-directed by an `elevation_hint`
+    (a coarse painted mask); mapwright fills in coasts, erosion, rivers, climate."""
+    cfg = WorldMapConfig(sea_level=0.42, edge_falloff=0.3, mountain_density=0.6)
+    t = RegionalTerrainGenerator(SeededRNG(seed)).generate(
+        MAP_W, MAP_H, config=cfg, elevation_hint=_HINT_MASK)
+    return RegionalSVGRenderer(scale=MAP_SCALE).render(t)
+
+
 def render_template(template: str, sea_level: float, seed: int) -> str:
     cfg = WorldMapConfig(sea_level=sea_level)
     t = RegionalTerrainGenerator(SeededRNG(seed)).generate(MAP_W, MAP_H, config=cfg, template=template)
@@ -195,6 +218,7 @@ def main() -> None:
     emit("template-atoll", render_template("atoll", 0.55, seed=8))
     emit("age-young", render_age(0.0, seed=103))
     emit("age-old", render_age(1.0, seed=103))
+    emit("hint", render_hint(seed=11))
     emit("theme-parchment", render_themed("parchment"))
     emit("theme-neon", render_themed("neon"))
     emit("theme-dune", render_themed("dune"))

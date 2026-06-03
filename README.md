@@ -77,9 +77,13 @@ produced by [`examples/gallery.py`](examples/gallery.py):
 <td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/age-young.png" alt="young jagged terrain"><br><sub><code>land_age=0</code> (young)</sub></td>
 <td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/age-old.png" alt="old worn terrain"><br><sub><code>land_age=1</code> (old)</sub></td>
 </tr>
+<tr>
+<td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/hint.png" alt="continent shaped by a caller-supplied elevation hint"><br><sub><code>elevation_hint=…</code></sub></td>
+<td colspan="2" align="left"><sub>A continent whose macro shape is <b>art-directed</b> by a caller-supplied <code>elevation_hint</code> (a coarse painted land/elevation mask). The host (or an LLM) draws the shape; mapwright fills in organic coasts, erosion, rivers and climate — so maps need never look circular.</sub></td>
+</tr>
 </table>
 
-The two right-hand maps above are the **same continent** at `land_age=0` (young, jagged,
+The `land_age` pair above are the **same continent** at `land_age=0` (young, jagged,
 snow-capped peaks) vs `land_age=1` (old, worn down to rounded hills) — a mapwright-original
 "geological age" knob.
 
@@ -197,7 +201,7 @@ Settlement presets: `hamlet`, `village`, `town`, `city`, `port`, `citadel`.
 |-----------|--------------|
 | `SeededRNG` | One seed drives everything; `.derive(label)` yields independent, reproducible sub-streams (unifies stdlib + numpy). |
 | `NameGenerator` | Order-k character Markov names over hand-authored culture namebases; reproducible across processes. |
-| `RegionalTerrainGenerator` | Voronoi cells (Lloyd-relaxed) → **tectonic-plate** heightmap (organic coasts + mountain ranges at plate collisions; percentile sea level) → Planchon–Darboux depression fill → flux + hydraulic/creep erosion → rivers + inland lakes → latitude/elevation climate with **rain-shadow** → Whittaker biomes. |
+| `RegionalTerrainGenerator` | Voronoi cells (Lloyd-relaxed) → **tectonic-plate** heightmap (organic coasts + mountain ranges at plate collisions; percentile sea level) → Planchon–Darboux depression fill → flux + hydraulic/creep erosion → rivers + inland lakes → latitude/elevation climate with **rain-shadow** → Whittaker biomes. Accepts a `template=` archetype or an `elevation_hint=` (caller-drawn macro shape). |
 | `compute_cell_polygons` | Reconstructs convex Voronoi polygons (half-plane clipping) for vector rendering. |
 | `RegionalSVGRenderer` | Shaded-relief (hillshade) SVG: biome polygons, coastline, rivers, roads, labelled markers. Takes a `theme=`. |
 | `Theme` / `THEMES` | A render palette + biome vocabulary; re-skins the same terrain — and its towns and dungeons — via one `theme=` (parchment / neon / dune / blueprint, or your own). The "Dominant Medium" layer. |
