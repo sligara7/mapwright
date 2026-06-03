@@ -68,6 +68,11 @@ produced by [`examples/gallery.py`](examples/gallery.py):
 <td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/citadel.png" alt="generated walled citadel"><br><sub><code>Settlement (citadel)</code></sub></td>
 </tr>
 <tr>
+<td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/shantytown.png" alt="poor, dense, irregular shantytown"><br><sub><code>wealth=0.08</code> (shantytown)</sub></td>
+<td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/metropolis.png" alt="rich, modern, grid-block metropolis"><br><sub><code>wealth=0.92, era=0.95</code> (metropolis)</sub></td>
+<td align="center"><sub>Same generator, opposite ends of the <b>shanty ↔ skyscraper</b> axis: <code>wealth</code> drives plot size + ward mix, <code>era</code> drives organic-vs-grid block regularity.</sub></td>
+</tr>
+<tr>
 <td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/roads.png" alt="settlements linked by terrain-routed roads"><br><sub><code>RegionalRoadGenerator</code></sub></td>
 <td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/regions.png" alt="land partitioned into named territories"><br><sub><code>RegionGenerator</code></sub></td>
 <td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/template-isthmus.png" alt="isthmus heightmap template"><br><sub><code>template="isthmus"</code></sub></td>
@@ -193,7 +198,9 @@ citadel = SettlementGenerator(SeededRNG(3)).generate(90, 90, SettlementConfig.pr
 open("town.svg", "w").write(SettlementSVGRenderer().render(town))
 ```
 
-Settlement presets: `hamlet`, `village`, `town`, `city`, `port`, `citadel`.
+Settlement presets: `hamlet`, `village`, `town`, `city`, `port`, `citadel`,
+`shantytown`, `metropolis`. The `wealth` (poor ⇄ rich) and `era` (ancient ⇄ modern)
+knobs drive the shanty↔skyscraper axis — plot size, ward-kind mix, and block regularity.
 
 ## What's inside
 

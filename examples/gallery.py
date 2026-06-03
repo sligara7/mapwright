@@ -212,6 +212,8 @@ def main() -> None:
     emit("town", render_settlement(None, seed=7))
     emit("port", render_settlement("port", seed=5))
     emit("citadel", render_settlement("citadel", seed=3))
+    emit("shantytown", render_settlement("shantytown", seed=5))
+    emit("metropolis", render_settlement("metropolis", seed=5))
     emit("roads", render_roads(seed=7))
     emit("regions", render_regions(seed=4))
     emit("template-isthmus", render_template("isthmus", 0.5, seed=5))

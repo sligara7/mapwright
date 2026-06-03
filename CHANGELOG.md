@@ -8,6 +8,22 @@ All notable changes to mapwright are documented here. The format follows
 `tests/test_api_contract.py`). While the version is `0.x`, minor versions may
 make breaking changes; these will always be noted here.
 
+## [0.20.0] — 2026-06-02
+
+### Added
+- **Settlement `era` + `wealth` — the shanty ↔ skyscraper axis.** Two new 0..1
+  `SettlementConfig` knobs (mapwright-original, extending the age/era/wealth idea
+  to towns):
+  - **`wealth`** scales plot *size* (poor = cramped tiny lots; rich = large
+    estates/blocks) and the ward-kind *mix* (poor = slum-heavy; rich = more
+    noble/temple wards).
+  - **`era`** sets block *regularity* (ancient = organic, jittered; modern =
+    near-grid rectangular blocks).
+  Both are neutral at `0.5`, so the default output is **byte-identical** (the
+  shaping factors are exact identities and the neutral ward bag equals the old
+  fixed mix). Two new presets — `shantytown` and `metropolis` — and a gallery
+  showcase of both. Purely additive; serialises via `to_dict`/`json_schema`.
+
 ## [0.19.0] — 2026-06-02
 
 ### Added

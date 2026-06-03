@@ -46,15 +46,61 @@ class TestSettlementConfig:
         schema = SettlementConfig.json_schema()
         assert schema["additionalProperties"] is False
         assert set(schema["properties"]) == {
-            "population", "irregularity", "lot_size", "walled", "coastal"
+            "population", "irregularity", "lot_size", "wealth", "era",
+            "walled", "coastal"
         }
         assert schema["properties"]["walled"]["type"] == "boolean"
         assert schema["properties"]["lot_size"]["type"] == "number"
 
     def test_config_round_trip(self):
         c = SettlementConfig(population=4200, irregularity=0.3, lot_size=12.0,
-                             walled=True, coastal=True)
+                             wealth=0.2, era=0.8, walled=True, coastal=True)
         assert SettlementConfig.from_dict(c.to_dict()) == c
+
+
+class TestEraAndWealth:
+    def test_neutral_is_byte_identical_to_default(self):
+        # wealth=era=0.5 must reproduce the pre-feature output exactly.
+        base = SettlementSVGRenderer(scale=7).render(_town(7))
+        neutral = SettlementSVGRenderer(scale=7).render(_town(7, wealth=0.5, era=0.5))
+        assert base == neutral
+
+    def test_neutral_ward_pool_matches_canonical(self):
+        from mapwright.settlement import _OTHER_KINDS, _ward_kind_pool
+        assert _ward_kind_pool(0.5) == _OTHER_KINDS
+
+    def test_neutral_shaping_factors_are_identity(self):
+        from mapwright.settlement import _block_jitter_factor, _lot_size_factor
+        assert _lot_size_factor(0.5) == 1.0
+        assert _block_jitter_factor(0.5, 0.5) == 1.0
+
+    def test_poor_is_denser_than_rich(self):
+        # Same seed + population: low wealth → many small lots; high wealth → fewer.
+        poor = _town(5, w=95, h=95, population=14000, wealth=0.08, era=0.3)
+        rich = _town(5, w=95, h=95, population=14000, wealth=0.92, era=0.95)
+        assert len(poor.lots) > 2 * len(rich.lots)
+
+    def test_wealth_shifts_ward_mix(self):
+        poor = _town(5, population=14000, wealth=0.05)
+        rich = _town(5, population=14000, wealth=0.95)
+        poor_slums = sum(1 for w in poor.wards if w.kind == "slums")
+        rich_nobles = sum(1 for w in rich.wards if w.kind == "noble")
+        assert poor_slums >= 1
+        assert rich_nobles >= 1
+        assert sum(1 for w in rich.wards if w.kind == "slums") < poor_slums
+
+    def test_presets_exist_and_differ(self):
+        assert {"shantytown", "metropolis"} <= set(SettlementConfig.preset_names())
+        shanty = SettlementGenerator(SeededRNG(5)).generate(
+            95, 95, SettlementConfig.preset("shantytown"))
+        metro = SettlementGenerator(SeededRNG(5)).generate(
+            95, 95, SettlementConfig.preset("metropolis"))
+        assert len(shanty.lots) != len(metro.lots)
+
+    def test_deterministic(self):
+        a = _town(9, population=8000, wealth=0.2, era=0.7)
+        b = _town(9, population=8000, wealth=0.2, era=0.7)
+        assert [lot.polygon for lot in a.lots] == [lot.polygon for lot in b.lots]
 
 
 class TestGeneration:

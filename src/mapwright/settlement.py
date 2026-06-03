@@ -101,6 +101,12 @@ _SPEC: list[tuple] = [
      "0 = smooth round footprint; 1 = ragged, organic outline."),
     ("lot_size", float, 2.0, 60.0,
      "Target building-plot area (tiles²); smaller = denser, finer lots."),
+    ("wealth", float, 0.0, 1.0,
+     "0 = destitute shanty (cramped, slum-heavy lots); 1 = rich (large estates, "
+     "noble/temple wards). 0.5 is neutral."),
+    ("era", float, 0.0, 1.0,
+     "0 = ancient/medieval (organic, winding blocks); 1 = modern (regular, "
+     "grid-like blocks). 0.5 is neutral."),
 ]
 # Boolean flags: (name, description). Kept separate from _SPEC (no clamping).
 _FLAG_SPEC: list[tuple] = [
@@ -128,6 +134,33 @@ _WARD_LOT_FACTOR: dict[str, float | None] = {
 }
 
 
+# --- era / wealth shaping (all identity at the neutral 0.5, so defaults are
+# byte-identical to the pre-era output) ------------------------------------
+
+def _lot_size_factor(wealth: float) -> float:
+    """Wealth scales plot size: poor ⇒ cramped (smaller plots), rich ⇒ large
+    estates / blocks. Returns 1.0 at ``wealth == 0.5``."""
+    return 1.0 + (wealth - 0.5) * 1.2
+
+
+def _block_jitter_factor(era: float, wealth: float) -> float:
+    """Block regularity, mostly from ``era`` (a little from ``wealth``): a modern,
+    planned town gets near-centred, grid-like splits (low jitter); an ancient or
+    poor one sprawls (high jitter). Returns 1.0 at ``era == wealth == 0.5``."""
+    order = 0.7 * (era - 0.5) + 0.5 * (wealth - 0.5)  # 0 at neutral
+    return _clamp(1.0 - 1.3 * order, 0.25, 1.7)
+
+
+def _ward_kind_pool(wealth: float) -> list[str]:
+    """The weighted ward-kind bag, shifted by wealth: poor ⇒ more slums, rich ⇒
+    more noble/temple. Equals ``_OTHER_KINDS`` exactly at ``wealth == 0.5``."""
+    noble = max(0, round(2 + (wealth - 0.5) * 5))
+    temple = max(0, round(1 + (wealth - 0.5) * 2))
+    slums = max(0, round(2 - (wealth - 0.5) * 6))
+    return (["residential"] * 5 + ["craftsmen"] * 3 + ["noble"] * noble
+            + ["slums"] * slums + ["temple"] * temple + ["garrison"] * 1)
+
+
 @dataclass
 class SettlementConfig:
     """Knobs for :meth:`SettlementGenerator.generate`. Defaults = a small town."""
@@ -138,6 +171,10 @@ class SettlementConfig:
     """0..1 — how ragged the town outline is."""
     lot_size: float = 8.0
     """Target building-plot area in tiles² (smaller ⇒ denser, finer lots)."""
+    wealth: float = 0.5
+    """0..1 — destitute shanty ⇄ rich town (lot size + ward-kind mix)."""
+    era: float = 0.5
+    """0..1 — ancient/organic ⇄ modern/grid-regular blocks."""
     walled: bool = False
     """Whether the town has a wall (stored now, rendered in a later version)."""
     coastal: bool = False
@@ -157,6 +194,8 @@ class SettlementConfig:
             "population": self.population,
             "irregularity": self.irregularity,
             "lot_size": self.lot_size,
+            "wealth": self.wealth,
+            "era": self.era,
             "walled": self.walled,
             "coastal": self.coastal,
         }
@@ -213,6 +252,8 @@ SETTLEMENT_PRESETS: dict[str, dict] = {
     "city": {"population": 18000, "irregularity": 0.35},
     "port": {"population": 9000, "coastal": True, "irregularity": 0.4},
     "citadel": {"population": 5000, "walled": True, "irregularity": 0.2},
+    "shantytown": {"population": 4000, "wealth": 0.08, "era": 0.3, "irregularity": 0.8},
+    "metropolis": {"population": 30000, "wealth": 0.92, "era": 0.95, "irregularity": 0.18},
 }
 
 
@@ -413,7 +454,8 @@ class SettlementGenerator:
 
         seeds = self._ward_seeds(footprint, cfg.population)
         polys = voronoi_cells(seeds, footprint)
-        wards = self._build_wards(polys, cfg.coastal, water_edge, culture)
+        wards = self._build_wards(polys, cfg.coastal, water_edge, culture,
+                                  _ward_kind_pool(cfg.wealth))
         lots = self._build_lots(wards, cfg)
         streets, gates = self._build_streets(wards, footprint, cfg.coastal, water_edge)
         wall = self._build_wall(footprint, cfg.walled, cfg.coastal, water_edge, gates)
@@ -524,9 +566,10 @@ class SettlementGenerator:
         coastal: bool,
         water_edge: tuple[Point, Point] | None,
         culture: str,
+        kind_pool: list[str],
     ) -> list[Ward]:
         """Name + classify each non-degenerate ward (central = market, coastal
-        nearest-water = docks, rest a residential-heavy mix)."""
+        nearest-water = docks, rest drawn from the wealth-weighted ``kind_pool``)."""
         valid = [(i, p) for i, p in enumerate(polys) if len(p) >= 3]
         if not valid:
             return []
@@ -555,7 +598,7 @@ class SettlementGenerator:
             elif i == docks:
                 kind = _DOCKS
             else:
-                kind = self._rng.choice(_OTHER_KINDS)
+                kind = self._rng.choice(kind_pool)
             wards.append(Ward(new_id, poly, centers[i], self._names.place(culture), kind))
         return wards
 
@@ -566,12 +609,15 @@ class SettlementGenerator:
         building footprints, leaving gaps that read as alleys)."""
         lots: list[Lot] = []
         lot_id = 0
+        size_factor = _lot_size_factor(cfg.wealth)       # wealth ⇒ plot size
+        jitter_factor = _block_jitter_factor(cfg.era, cfg.wealth)  # era ⇒ regularity
         for ward in wards:
             factor = _WARD_LOT_FACTOR.get(ward.kind, 1.0)
             if factor is None:  # open ward (e.g. market square) — no buildings
                 continue
-            target = cfg.lot_size * factor
-            for parcel in self._subdivide(ward.polygon, target, cfg.irregularity):
+            target = cfg.lot_size * factor * size_factor
+            for parcel in self._subdivide(ward.polygon, target, cfg.irregularity,
+                                          jitter_factor):
                 building = inset_convex(parcel, self._building_margin(parcel))
                 if len(building) >= 3:
                     lots.append(Lot(lot_id, building, ward.id))
@@ -585,20 +631,21 @@ class SettlementGenerator:
         return min(0.6, 0.16 * math.sqrt(max(0.0, polygon_area(parcel))))
 
     def _subdivide(
-        self, poly: list[Point], target_area: float, irregularity: float, depth: int = 0
+        self, poly: list[Point], target_area: float, irregularity: float,
+        jitter_factor: float = 1.0, depth: int = 0
     ) -> list[list[Point]]:
         """Recursively bisect a convex polygon until each piece is ≤ ``target_area``."""
         if depth >= 14 or len(poly) < 3 or polygon_area(poly) <= target_area:
             return [poly]
-        halves = self._bisect(poly, irregularity)
+        halves = self._bisect(poly, irregularity, jitter_factor)
         if halves is None:
             return [poly]
         a, b = halves
-        return (self._subdivide(a, target_area, irregularity, depth + 1)
-                + self._subdivide(b, target_area, irregularity, depth + 1))
+        return (self._subdivide(a, target_area, irregularity, jitter_factor, depth + 1)
+                + self._subdivide(b, target_area, irregularity, jitter_factor, depth + 1))
 
     def _bisect(
-        self, poly: list[Point], irregularity: float
+        self, poly: list[Point], irregularity: float, jitter_factor: float = 1.0
     ) -> tuple[list[Point], list[Point]] | None:
         """Split a convex polygon across its longest axis (longest edge as proxy),
         near the middle with jitter. Returns the two halves, or None if it can't."""
@@ -621,7 +668,7 @@ class SettlementGenerator:
         span = hi - lo
         if span < 1e-9:
             return None
-        jitter = (0.12 + 0.22 * irregularity) * span
+        jitter = (0.12 + 0.22 * irregularity) * span * jitter_factor
         t = (lo + hi) / 2 + self._rng.fuzzy(0.0, jitter)
         t = max(lo + 0.2 * span, min(hi - 0.2 * span, t))  # keep splits off the slivers
 
