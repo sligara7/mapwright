@@ -61,6 +61,12 @@ class Theme:
         if missing:
             raise ValueError(f"theme {self.name!r} missing biome colours: {missing}")
 
+    # ``frozen=True`` advertises hashability, but the dict fields make the
+    # auto-generated __hash__ raise. Themes are identified by name, so hash on
+    # that (value-equality via the dataclass __eq__ is preserved).
+    def __hash__(self) -> int:
+        return hash(self.name)
+
     def biome_label(self, biome: Biome) -> str:
         """Display name for ``biome`` under this theme's vocabulary."""
         return self.biome_names.get(biome, biome.name.title())

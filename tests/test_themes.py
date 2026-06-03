@@ -58,6 +58,13 @@ class TestVocabulary:
         assert rgb[Biome.OCEAN] == (31, 78, 107)
 
 
+class TestHashability:
+    def test_theme_is_hashable_despite_dict_fields(self):
+        # frozen dataclass advertises hashability; dict fields must not break it.
+        assert len({THEMES["neon"], THEMES["dune"], THEMES["neon"]}) == 2
+        assert hash(THEMES["parchment"]) == hash(THEMES["parchment"])
+
+
 class TestResolve:
     def test_get_theme_by_name_and_passthrough(self):
         t = get_theme("dune")
