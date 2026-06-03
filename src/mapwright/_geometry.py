@@ -278,3 +278,46 @@ def inset_convex(poly: list[Point], dist: float) -> list[Point]:
     if polygon_area(out) <= 1e-9:
         return []
     return out
+
+
+def clip_line_to_convex(
+    poly: list[Point], px: float, py: float, dx: float, dy: float
+) -> tuple[Point, Point] | None:
+    """Clip the infinite line through ``(px, py)`` with direction ``(dx, dy)`` to a
+    convex polygon, returning its ``(entry, exit)`` endpoints — or ``None`` if the
+    line misses the polygon (or the inputs are degenerate).
+
+    Liang–Barsky against each edge's inward half-plane: the line is ``P(t) =
+    (px + t·dx, py + t·dy)``; the valid ``t``-interval starts at ``(-inf, +inf)``
+    and is narrowed by every edge. ``poly`` must be convex.
+    """
+    if len(poly) < 3 or (dx == 0.0 and dy == 0.0):
+        return None
+    cx, cy = polygon_centroid(poly)
+    t_lo, t_hi = -math.inf, math.inf
+    n = len(poly)
+    for i in range(n):
+        ax, ay = poly[i]
+        bx, by = poly[(i + 1) % n]
+        ex, ey = bx - ax, by - ay
+        # Inward normal of this edge (oriented toward the centroid).
+        nx, ny = ey, -ex
+        if (cx - ax) * nx + (cy - ay) * ny < 0:
+            nx, ny = -nx, -ny
+        # Keep where (P(t) - a)·n >= 0  ⇒  base + t·slope >= 0.
+        base = (px - ax) * nx + (py - ay) * ny
+        slope = dx * nx + dy * ny
+        if abs(slope) < 1e-12:
+            if base < -1e-9:
+                return None  # line runs wholly outside this edge — no crossing
+            continue
+        t = -base / slope
+        if slope > 0:
+            t_lo = max(t_lo, t)
+        else:
+            t_hi = min(t_hi, t)
+        if t_lo > t_hi:
+            return None
+    if not math.isfinite(t_lo) or not math.isfinite(t_hi) or t_hi - t_lo < 1e-9:
+        return None
+    return ((px + t_lo * dx, py + t_lo * dy), (px + t_hi * dx, py + t_hi * dy))

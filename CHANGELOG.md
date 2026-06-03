@@ -8,6 +8,28 @@ All notable changes to mapwright are documented here. The format follows
 `tests/test_api_contract.py`). While the version is `0.x`, minor versions may
 make breaking changes; these will always be noted here.
 
+## [0.21.0] — 2026-06-02
+
+### Added
+- **Grid streets — the organic ↔ planned layout descriptor.** A new
+  `SettlementConfig.layout` field (`"organic"` default, or `"grid"`) chooses the
+  street pattern. In `"grid"` mode the town gets a geometric street grid aligned
+  to its long axis (PCA over the footprint): two families of parallel
+  thoroughfares clipped to the footprint, the central line of each marked
+  `"main"`, with gates where the mains pierce the perimeter (plus a harbour gate
+  when coastal). Building lots are also bisected along the grid axes, so blocks
+  come out rectangular and street-aligned. Walls splice grid gates (which land
+  mid-edge) into the wall ring as real gatehouse gaps. This is the *Layout &
+  Geometry* descriptor from the imaginative-realms taxonomy ("Hyper-Grid Rigid"),
+  generalising the `era`/`wealth` shanty↔skyscraper axis.
+  - New preset **`grid_city`**; gallery `grid-city` showcase.
+  - The default (`layout="organic"`) output is **byte-identical** to before — all
+    grid logic is gated behind the new mode.
+  - `layout` serialises via `to_dict`/`json_schema` (new enum-field support in
+    `SettlementConfig`, via an `_ENUM_SPEC`).
+- New reusable geometry primitive `clip_line_to_convex` (Liang–Barsky line ↔
+  convex-polygon clipping) in the internal `_geometry` module.
+
 ## [0.20.0] — 2026-06-02
 
 ### Added

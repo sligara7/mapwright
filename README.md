@@ -70,7 +70,7 @@ produced by [`examples/gallery.py`](examples/gallery.py):
 <tr>
 <td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/shantytown.png" alt="poor, dense, irregular shantytown"><br><sub><code>wealth=0.08</code> (shantytown)</sub></td>
 <td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/metropolis.png" alt="rich, modern, grid-block metropolis"><br><sub><code>wealth=0.92, era=0.95</code> (metropolis)</sub></td>
-<td align="center"><sub>Same generator, opposite ends of the <b>shanty ↔ skyscraper</b> axis: <code>wealth</code> drives plot size + ward mix, <code>era</code> drives organic-vs-grid block regularity.</sub></td>
+<td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/grid-city.png" alt="planned town with a geometric street grid"><br><sub><code>layout="grid"</code> (grid_city)</sub></td>
 </tr>
 <tr>
 <td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/roads.png" alt="settlements linked by terrain-routed roads"><br><sub><code>RegionalRoadGenerator</code></sub></td>
@@ -199,8 +199,11 @@ open("town.svg", "w").write(SettlementSVGRenderer().render(town))
 ```
 
 Settlement presets: `hamlet`, `village`, `town`, `city`, `port`, `citadel`,
-`shantytown`, `metropolis`. The `wealth` (poor ⇄ rich) and `era` (ancient ⇄ modern)
-knobs drive the shanty↔skyscraper axis — plot size, ward-kind mix, and block regularity.
+`shantytown`, `metropolis`, `grid_city`. The `wealth` (poor ⇄ rich) and `era`
+(ancient ⇄ modern) knobs drive the shanty↔skyscraper axis — plot size, ward-kind
+mix, and block regularity. The `layout` knob picks the street pattern: `"organic"`
+(winding ward-to-ward roads, the default) or `"grid"` (a geometric street grid
+aligned to the town's long axis, with grid-aligned lots).
 
 ## What's inside
 
@@ -218,7 +221,7 @@ knobs drive the shanty↔skyscraper axis — plot size, ward-kind mix, and block
 | `RegionGenerator` | Partitions land into named factions/territories: spread capitals seed a flood fill over the land graph (sea divides them); each `Region` is Markov-named. |
 | `DungeonGenerator` | BSP-partitioned rooms + minimum-spanning-tree corridors → rooms, corridor cells, and a walkable grid (with `Dungeon.ascii()`). |
 | `DungeonSVGRenderer` | Renders a `Dungeon` to SVG: walls, carved floor, room outlines, optional tile grid and per-room labels. Takes a `theme=`. |
-| `SettlementGenerator` | Self-contained town layout: an organic footprint divided into named Voronoi **wards** (market, docks, …), each subdivided into building **lots**, a **street** network (MST over ward adjacency + main roads from gates to the market), an optional defensive **wall** (towers + gate gaps, opened at the harbour when coastal), and optional coastline. |
+| `SettlementGenerator` | Self-contained town layout: an organic footprint divided into named Voronoi **wards** (market, docks, …), each subdivided into building **lots**, a **street** network (`layout="organic"` → MST over ward adjacency + gate-to-market roads; `layout="grid"` → a geometric street grid + grid-aligned lots), an optional defensive **wall** (towers + gate gaps, opened at the harbour when coastal), and optional coastline. |
 | `SettlementSVGRenderer` | Renders a `Settlement` to SVG: sea, footprint, kind-coloured wards, building lots, streets, wall with towers/gatehouses, labels. Takes a `theme=`. |
 
 Everything is neutral: `RegionalTerrainGenerator` returns a `TerrainResult` of `TerrainCell`s

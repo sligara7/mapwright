@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mapwright"
-version = "0.20.0"
+version = "0.21.0"
 description = "Domain-neutral procedural fantasy map & world generation: Voronoi terrain, hydraulic erosion, biomes, rivers, Markov place-names, and shaded-relief SVG."
 readme = "README.md"
 requires-python = ">=3.10"

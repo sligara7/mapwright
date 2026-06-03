@@ -23,6 +23,7 @@ from . import _graph, _serde
 from ._geometry import (
     Point,
     clip_halfplane,
+    clip_line_to_convex,
     convex_hull,
     inset_convex,
     point_in_polygon,
@@ -93,6 +94,35 @@ def _open_ring_excluding_edge(
     return out
 
 
+def _point_segment_dist(p: Point, a: Point, b: Point) -> float:
+    """Distance from point ``p`` to segment ``a``–``b``."""
+    ax, ay = a
+    bx, by = b
+    ex, ey = bx - ax, by - ay
+    length2 = ex * ex + ey * ey
+    if length2 < 1e-18:
+        return math.hypot(p[0] - ax, p[1] - ay)
+    t = max(0.0, min(1.0, ((p[0] - ax) * ex + (p[1] - ay) * ey) / length2))
+    return math.hypot(p[0] - (ax + t * ex), p[1] - (ay + t * ey))
+
+
+def _insert_on_ring(ring: list[Point], pt: Point, eps: float = 1e-6) -> list[Point]:
+    """Insert ``pt`` into ``ring`` on the perimeter edge it lies on, so a mid-edge
+    point (e.g. a grid gate) becomes a real ring vertex. No-op when ``pt`` already
+    coincides with a vertex, or doesn't actually sit on the perimeter."""
+    if _index_of(ring, pt, eps) is not None:
+        return ring
+    m = len(ring)
+    best_i, best_d = -1, float("inf")
+    for i in range(m):
+        d = _point_segment_dist(pt, ring[i], ring[(i + 1) % m])
+        if d < best_d:
+            best_d, best_i = d, i
+    if best_i < 0 or best_d > 1e-6:
+        return ring  # not on the perimeter — leave the ring alone
+    return ring[:best_i + 1] + [pt] + ring[best_i + 1:]
+
+
 # Single source of truth for the numeric knobs: (name, type, min, max, description).
 _SPEC: list[tuple] = [
     ("population", int, 20, 200_000,
@@ -112,6 +142,13 @@ _SPEC: list[tuple] = [
 _FLAG_SPEC: list[tuple] = [
     ("walled", "Surround the town with a defensive wall (recorded now; drawn later)."),
     ("coastal", "Place the town on a coastline — adds a straight water edge."),
+]
+# Enumerated (string-choice) fields: (name, choices, default, description). An
+# invalid value falls back to the default. Kept separate from the numeric _SPEC.
+_ENUM_SPEC: list[tuple] = [
+    ("layout", ("organic", "grid"), "organic",
+     "Street pattern: 'organic' = winding ward-to-ward roads (the classic look); "
+     "'grid' = a geometric street grid aligned to the town's long axis."),
 ]
 
 # Ward kinds. One central market, optional dockside ward when coastal, and a
@@ -175,6 +212,8 @@ class SettlementConfig:
     """0..1 — destitute shanty ⇄ rich town (lot size + ward-kind mix)."""
     era: float = 0.5
     """0..1 — ancient/organic ⇄ modern/grid-regular blocks."""
+    layout: str = "organic"
+    """Street pattern: 'organic' (winding ward roads) or 'grid' (geometric grid)."""
     walled: bool = False
     """Whether the town has a wall (stored now, rendered in a later version)."""
     coastal: bool = False
@@ -186,6 +225,9 @@ class SettlementConfig:
             setattr(self, name, int(value) if typ is int else float(value))
         for name, _desc in _FLAG_SPEC:
             setattr(self, name, bool(getattr(self, name)))
+        for name, choices, default, _desc in _ENUM_SPEC:
+            value = getattr(self, name)
+            setattr(self, name, value if value in choices else default)
 
     # -- serialisation / interop ----------------------------------------
 
@@ -196,6 +238,7 @@ class SettlementConfig:
             "lot_size": self.lot_size,
             "wealth": self.wealth,
             "era": self.era,
+            "layout": self.layout,
             "walled": self.walled,
             "coastal": self.coastal,
         }
@@ -223,6 +266,13 @@ class SettlementConfig:
         for name, desc in _FLAG_SPEC:
             properties[name] = {
                 "type": "boolean",
+                "default": getattr(defaults, name),
+                "description": desc,
+            }
+        for name, choices, _default, desc in _ENUM_SPEC:
+            properties[name] = {
+                "type": "string",
+                "enum": list(choices),
                 "default": getattr(defaults, name),
                 "description": desc,
             }
@@ -254,6 +304,8 @@ SETTLEMENT_PRESETS: dict[str, dict] = {
     "citadel": {"population": 5000, "walled": True, "irregularity": 0.2},
     "shantytown": {"population": 4000, "wealth": 0.08, "era": 0.3, "irregularity": 0.8},
     "metropolis": {"population": 30000, "wealth": 0.92, "era": 0.95, "irregularity": 0.18},
+    "grid_city": {"population": 16000, "wealth": 0.7, "era": 0.95,
+                  "layout": "grid", "irregularity": 0.25},
 }
 
 
@@ -456,8 +508,13 @@ class SettlementGenerator:
         polys = voronoi_cells(seeds, footprint)
         wards = self._build_wards(polys, cfg.coastal, water_edge, culture,
                                   _ward_kind_pool(cfg.wealth))
-        lots = self._build_lots(wards, cfg)
-        streets, gates = self._build_streets(wards, footprint, cfg.coastal, water_edge)
+        # A grid town aligns both its lots and its streets to the footprint's axes.
+        grid_axes = None
+        if cfg.layout == "grid":
+            _, u, v = self._principal_axis(footprint)
+            grid_axes = (u, v)
+        lots = self._build_lots(wards, cfg, grid_axes)
+        streets, gates = self._build_streets(wards, footprint, cfg, water_edge)
         wall = self._build_wall(footprint, cfg.walled, cfg.coastal, water_edge, gates)
 
         return Settlement(
@@ -604,9 +661,16 @@ class SettlementGenerator:
 
     # -- lots (recursive bisection of each ward) -------------------------
 
-    def _build_lots(self, wards: list[Ward], cfg: SettlementConfig) -> list[Lot]:
+    def _build_lots(
+        self,
+        wards: list[Ward],
+        cfg: SettlementConfig,
+        grid_axes: tuple[Point, Point] | None = None,
+    ) -> list[Lot]:
         """Subdivide each buildable ward into building plots (insets become the
-        building footprints, leaving gaps that read as alleys)."""
+        building footprints, leaving gaps that read as alleys). When ``grid_axes``
+        is given (grid layout) the bisection splits along the town's grid axes, so
+        lots come out rectangular and aligned to the streets."""
         lots: list[Lot] = []
         lot_id = 0
         size_factor = _lot_size_factor(cfg.wealth)       # wealth ⇒ plot size
@@ -617,7 +681,7 @@ class SettlementGenerator:
                 continue
             target = cfg.lot_size * factor * size_factor
             for parcel in self._subdivide(ward.polygon, target, cfg.irregularity,
-                                          jitter_factor):
+                                          jitter_factor, grid_axes=grid_axes):
                 building = inset_convex(parcel, self._building_margin(parcel))
                 if len(building) >= 3:
                     lots.append(Lot(lot_id, building, ward.id))
@@ -632,36 +696,45 @@ class SettlementGenerator:
 
     def _subdivide(
         self, poly: list[Point], target_area: float, irregularity: float,
-        jitter_factor: float = 1.0, depth: int = 0
+        jitter_factor: float = 1.0, depth: int = 0,
+        grid_axes: tuple[Point, Point] | None = None,
     ) -> list[list[Point]]:
         """Recursively bisect a convex polygon until each piece is ≤ ``target_area``."""
         if depth >= 14 or len(poly) < 3 or polygon_area(poly) <= target_area:
             return [poly]
-        halves = self._bisect(poly, irregularity, jitter_factor)
+        halves = self._bisect(poly, irregularity, jitter_factor, grid_axes)
         if halves is None:
             return [poly]
         a, b = halves
-        return (self._subdivide(a, target_area, irregularity, jitter_factor, depth + 1)
-                + self._subdivide(b, target_area, irregularity, jitter_factor, depth + 1))
+        return (self._subdivide(a, target_area, irregularity, jitter_factor,
+                                depth + 1, grid_axes)
+                + self._subdivide(b, target_area, irregularity, jitter_factor,
+                                  depth + 1, grid_axes))
 
     def _bisect(
-        self, poly: list[Point], irregularity: float, jitter_factor: float = 1.0
+        self, poly: list[Point], irregularity: float, jitter_factor: float = 1.0,
+        grid_axes: tuple[Point, Point] | None = None,
     ) -> tuple[list[Point], list[Point]] | None:
-        """Split a convex polygon across its longest axis (longest edge as proxy),
-        near the middle with jitter. Returns the two halves, or None if it can't."""
-        n = len(poly)
-        best = -1.0
-        dx = dy = 0.0
-        for i in range(n):
-            ax, ay = poly[i]
-            bx, by = poly[(i + 1) % n]
-            length2 = (bx - ax) ** 2 + (by - ay) ** 2
-            if length2 > best:
-                best, dx, dy = length2, bx - ax, by - ay
-        dlen = math.hypot(dx, dy)
-        if dlen < 1e-9:
-            return None
-        ux, uy = dx / dlen, dy / dlen  # unit vector along the split axis
+        """Split a convex polygon near the middle with jitter. The split axis is the
+        polygon's longest axis (longest edge as proxy) — or, when ``grid_axes`` is
+        given, whichever of the two grid axes the polygon spans furthest along, so
+        the cuts stay aligned to the street grid. Returns the halves, or None."""
+        if grid_axes is not None:
+            ux, uy = self._grid_split_axis(poly, grid_axes)
+        else:
+            n = len(poly)
+            best = -1.0
+            dx = dy = 0.0
+            for i in range(n):
+                ax, ay = poly[i]
+                bx, by = poly[(i + 1) % n]
+                length2 = (bx - ax) ** 2 + (by - ay) ** 2
+                if length2 > best:
+                    best, dx, dy = length2, bx - ax, by - ay
+            dlen = math.hypot(dx, dy)
+            if dlen < 1e-9:
+                return None
+            ux, uy = dx / dlen, dy / dlen  # unit vector along the split axis
 
         proj = [x * ux + y * uy for x, y in poly]
         lo, hi = min(proj), max(proj)
@@ -685,11 +758,15 @@ class SettlementGenerator:
         self,
         wards: list[Ward],
         footprint: list[Point],
-        coastal: bool,
+        cfg: SettlementConfig,
         water_edge: tuple[Point, Point] | None,
     ) -> tuple[list[Street], list[Point]]:
-        """A minor-road network (MST + a few loops) over adjacent wards, plus main
-        roads from each town gate to the market."""
+        """Build the street network. ``layout="grid"`` lays a geometric grid aligned
+        to the town's long axis; otherwise the classic organic network (MST + a few
+        loops over adjacent wards, plus main roads from each gate to the market)."""
+        if cfg.layout == "grid":
+            return self._build_grid_streets(wards, footprint, cfg, water_edge)
+        coastal = cfg.coastal
         if len(wards) < 2:
             return [], []
         adj, mids = self._ward_adjacency(wards)
@@ -727,6 +804,95 @@ class SettlementGenerator:
         gates = self._gates(footprint, coastal, water_edge)
         for gate in gates:
             streets.append(Street([market, gate], "main"))
+        return streets, gates
+
+    @staticmethod
+    def _grid_split_axis(
+        poly: list[Point], grid_axes: tuple[Point, Point]
+    ) -> Point:
+        """Of the two grid axes, the unit axis the polygon spans furthest along —
+        cutting across it divides the block's long dimension while keeping the cut
+        parallel to a street."""
+        (a1x, a1y), (a2x, a2y) = grid_axes
+        p1 = [x * a1x + y * a1y for x, y in poly]
+        p2 = [x * a2x + y * a2y for x, y in poly]
+        s1, s2 = max(p1) - min(p1), max(p2) - min(p2)
+        return (a1x, a1y) if s1 >= s2 else (a2x, a2y)
+
+    # -- grid streets (geometric grid aligned to the long axis) ----------
+
+    @staticmethod
+    def _principal_axis(poly: list[Point]) -> tuple[Point, Point, Point]:
+        """Centroid + (major, minor) unit axes of a polygon, from the vertex
+        covariance. The major axis follows the footprint's elongation, so a grid
+        laid along it reads as a deliberately planned town that fits its shape."""
+        cx, cy = polygon_centroid(poly)
+        sxx = sxy = syy = 0.0
+        for x, y in poly:
+            dx, dy = x - cx, y - cy
+            sxx += dx * dx
+            sxy += dx * dy
+            syy += dy * dy
+        theta = 0.5 * math.atan2(2.0 * sxy, sxx - syy)  # major-axis orientation
+        u = (math.cos(theta), math.sin(theta))
+        v = (-u[1], u[0])
+        return (cx, cy), u, v
+
+    def _build_grid_streets(
+        self,
+        wards: list[Ward],
+        footprint: list[Point],
+        cfg: SettlementConfig,
+        water_edge: tuple[Point, Point] | None,
+    ) -> tuple[list[Street], list[Point]]:
+        """Two families of parallel avenues — along the long axis and across it —
+        clipped to the footprint. The central line of each family is a ``"main"``
+        thoroughfare; gates sit where the two mains exit the footprint (plus a
+        harbour gate when coastal)."""
+        if len(footprint) < 3:
+            return [], []
+        (cx, cy), u, v = self._principal_axis(footprint)
+        # Block spacing from the plot size, widened a touch for a modern (high-era)
+        # planned town. Deterministic — a grid needs no jitter.
+        spacing = max(4.0, math.sqrt(cfg.lot_size) * 2.6 * (1.0 + 0.3 * (cfg.era - 0.5)))
+
+        # Project vertices onto each axis to learn how many lines fit, centred on
+        # the centroid so the grid is symmetric about the middle of the town.
+        def _extent(axis: Point) -> tuple[float, float]:
+            proj = [(x - cx) * axis[0] + (y - cy) * axis[1] for x, y in footprint]
+            return min(proj), max(proj)
+
+        streets: list[Street] = []
+
+        def _family(direction: Point, offset_axis: Point) -> list[Street]:
+            """Lines running along ``direction``, stepped along ``offset_axis``."""
+            lo, hi = _extent(offset_axis)
+            k_lo, k_hi = math.ceil(lo / spacing), math.floor(hi / spacing)
+            out: list[Street] = []
+            for k in range(k_lo, k_hi + 1):
+                off = k * spacing
+                px, py = cx + off * offset_axis[0], cy + off * offset_axis[1]
+                seg = clip_line_to_convex(footprint, px, py, direction[0], direction[1])
+                if seg is not None:
+                    # k == 0 is the central thoroughfare → "main".
+                    out.append(Street([seg[0], seg[1]], "main" if k == 0 else "minor"))
+            return out
+
+        avenues = _family(u, v)   # along the long axis
+        crosses = _family(v, u)   # across it
+        streets.extend(avenues)
+        streets.extend(crosses)
+
+        # Gates: the endpoints of the two central thoroughfares (where they pierce
+        # the perimeter), plus a harbour gate at the coastline midpoint.
+        gates: list[Point] = []
+        for fam in (avenues, crosses):
+            main = next((st for st in fam if st.kind == "main"), None)
+            if main is not None:
+                gates.extend([main.path[0], main.path[-1]])
+        if cfg.coastal and water_edge is not None:
+            gates.append(((water_edge[0][0] + water_edge[1][0]) / 2,
+                          (water_edge[0][1] + water_edge[1][1]) / 2))
         return streets, gates
 
     @staticmethod
@@ -790,6 +956,16 @@ class SettlementGenerator:
         if not walled or len(footprint) < 3:
             return None
         ring = list(footprint)
+        # Grid gates land mid-edge, not on a footprint vertex; splice them into the
+        # ring so the gate-gap + gatehouse logic below treats them as corners (as it
+        # already does for organic gates, which are footprint vertices). Skip any
+        # gate on the coast edge — that side is opened as a harbour, and inserting a
+        # vertex there would break the "omit the coast edge" adjacency check.
+        for g in gates:
+            if (coastal and water_edge is not None
+                    and _point_segment_dist(g, water_edge[0], water_edge[1]) <= 1e-6):
+                continue
+            ring = _insert_on_ring(ring, g)
         closed = True
         if coastal and water_edge is not None:
             i0 = _index_of(ring, water_edge[0])

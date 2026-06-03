@@ -9,6 +9,7 @@ import numpy as np
 
 from mapwright._geometry import (
     clip_halfplane,
+    clip_line_to_convex,
     convex_hull,
     grid_adjacency,
     inset_convex,
@@ -76,6 +77,26 @@ class TestPolygons:
         clipped = clip_halfplane(rect, 5.0, 5.0, 1.0, 0.0)
         assert all(x <= 5.0 + 1e-6 for x, _ in clipped)
         assert len(clipped) >= 3
+
+    def test_clip_line_to_convex_horizontal_through_square(self):
+        sq = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]
+        seg = clip_line_to_convex(sq, 3.0, 5.0, 1.0, 0.0)  # horizontal line y=5
+        assert seg is not None
+        xs = sorted(p[0] for p in seg)
+        assert xs == [0.0, 10.0]
+        assert all(abs(y - 5.0) < 1e-9 for _, y in seg)
+
+    def test_clip_line_to_convex_diagonal(self):
+        sq = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]
+        seg = clip_line_to_convex(sq, 0.0, 0.0, 1.0, 1.0)  # main diagonal
+        pts = sorted(seg)
+        assert pts[0] == (0.0, 0.0)
+        assert abs(pts[1][0] - 10.0) < 1e-9 and abs(pts[1][1] - 10.0) < 1e-9
+
+    def test_clip_line_to_convex_misses(self):
+        sq = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]
+        assert clip_line_to_convex(sq, 20.0, 20.0, 1.0, 0.0) is None  # outside
+        assert clip_line_to_convex(sq, 5.0, 5.0, 0.0, 0.0) is None    # no direction
 
     def test_voronoi_polygons_split_two_sites(self):
         # Two sites left/right of x=5 → polygons land on their own side.

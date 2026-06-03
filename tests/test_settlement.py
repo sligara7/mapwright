@@ -47,10 +47,16 @@ class TestSettlementConfig:
         assert schema["additionalProperties"] is False
         assert set(schema["properties"]) == {
             "population", "irregularity", "lot_size", "wealth", "era",
-            "walled", "coastal"
+            "layout", "walled", "coastal"
         }
         assert schema["properties"]["walled"]["type"] == "boolean"
         assert schema["properties"]["lot_size"]["type"] == "number"
+        assert schema["properties"]["layout"]["type"] == "string"
+        assert schema["properties"]["layout"]["enum"] == ["organic", "grid"]
+
+    def test_layout_invalid_falls_back_to_default(self):
+        assert SettlementConfig(layout="spiral").layout == "organic"
+        assert SettlementConfig(layout="grid").layout == "grid"
 
     def test_config_round_trip(self):
         c = SettlementConfig(population=4200, irregularity=0.3, lot_size=12.0,
@@ -101,6 +107,91 @@ class TestEraAndWealth:
         a = _town(9, population=8000, wealth=0.2, era=0.7)
         b = _town(9, population=8000, wealth=0.2, era=0.7)
         assert [lot.polygon for lot in a.lots] == [lot.polygon for lot in b.lots]
+
+
+class TestGridLayout:
+    def test_default_layout_is_organic_and_byte_identical(self):
+        base = SettlementSVGRenderer(scale=7).render(_town(7))
+        organic = SettlementSVGRenderer(scale=7).render(_town(7, layout="organic"))
+        assert base == organic
+
+    def test_grid_differs_from_organic(self):
+        organic = _town(7, population=8000, layout="organic")
+        grid = _town(7, population=8000, layout="grid")
+        assert [s.path for s in grid.streets] != [s.path for s in organic.streets]
+
+    def test_grid_streets_are_straight_segments(self):
+        grid = _town(7, population=8000, layout="grid")
+        assert grid.streets
+        # Every grid street is a single straight segment (two endpoints).
+        assert all(len(s.path) == 2 for s in grid.streets)
+
+    def test_grid_streets_lie_within_footprint(self):
+        grid = _town(7, population=8000, layout="grid")
+        for s in grid.streets:
+            for x, y in s.path:
+                assert point_in_polygon((x, y), grid.footprint) or _near_perimeter(
+                    (x, y), grid.footprint)
+
+    def test_grid_has_main_thoroughfares_and_gates(self):
+        grid = _town(7, population=8000, layout="grid")
+        assert any(s.kind == "main" for s in grid.streets)
+        assert len(grid.gates) >= 2
+
+    def test_grid_walled_puts_gates_on_the_wall(self):
+        grid = _town(7, population=8000, layout="grid", walled=True)
+        assert grid.wall is not None
+        # Grid gates land mid-edge but must be spliced into the wall ring as gaps.
+        assert len(grid.wall.gates) >= 1
+        ring_keys = {(round(x, 3), round(y, 3)) for x, y in grid.wall.ring}
+        for gx, gy in grid.wall.gates:
+            assert (round(gx, 3), round(gy, 3)) in ring_keys
+
+    def test_grid_coastal_walled_opens_and_renders(self):
+        grid = _town(7, population=8000, layout="grid", walled=True, coastal=True)
+        assert grid.wall is not None and grid.wall.closed is False
+        # Renders without error.
+        assert SettlementSVGRenderer(scale=7).render(grid).startswith("<svg")
+
+    def test_grid_deterministic(self):
+        a = _town(9, population=8000, layout="grid")
+        b = _town(9, population=8000, layout="grid")
+        assert [s.path for s in a.streets] == [s.path for s in b.streets]
+
+    def test_grid_lots_align_to_axes_more_than_organic(self):
+        # Grid lots should have edges that line up with the town's grid axes far
+        # better than the organically-bisected ones.
+        grid = _town(7, population=9000, layout="grid", era=0.9)
+        organic = _town(7, population=9000, layout="organic", era=0.9)
+        _, u, v = SettlementGenerator._principal_axis(grid.footprint)
+        g = sum(_edge_align_error(lot.polygon, u, v) for lot in grid.lots) / len(grid.lots)
+        o = sum(_edge_align_error(lot.polygon, u, v) for lot in organic.lots) / len(organic.lots)
+        assert g < o
+
+
+def _edge_align_error(poly, u, v):
+    import math
+    errs = []
+    n = len(poly)
+    for i in range(n):
+        ax, ay = poly[i]
+        bx, by = poly[(i + 1) % n]
+        ex, ey = bx - ax, by - ay
+        L = math.hypot(ex, ey)
+        if L < 1e-9:
+            continue
+        ex, ey = ex / L, ey / L
+        du = abs(ex * u[0] + ey * u[1])  # ~1 when parallel to u
+        dv = abs(ex * v[0] + ey * v[1])  # ~1 when parallel to v
+        errs.append(min(1.0 - du, 1.0 - dv))  # 0 when aligned to either axis
+    return sum(errs) / len(errs) if errs else 0.0
+
+
+def _near_perimeter(p, poly, tol=1e-6):
+    from mapwright.settlement import _point_segment_dist
+    m = len(poly)
+    return any(_point_segment_dist(p, poly[i], poly[(i + 1) % m]) <= tol
+               for i in range(m))
 
 
 class TestGeneration:
