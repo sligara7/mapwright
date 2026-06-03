@@ -78,15 +78,16 @@ def render_template(template: str, sea_level: float, seed: int) -> str:
     return RegionalSVGRenderer(scale=MAP_SCALE).render(t)
 
 
-def render_dungeon(seed: int = 3) -> str:
+def render_dungeon(seed: int = 3, theme: str = "parchment") -> str:
     dungeon = DungeonGenerator(SeededRNG(seed)).generate(DUNGEON_W, DUNGEON_H)
-    return DungeonSVGRenderer(scale=DUNGEON_SCALE).render(dungeon, labels=True)
+    return DungeonSVGRenderer(scale=DUNGEON_SCALE, theme=theme).render(
+        dungeon, labels=True)
 
 
-def render_settlement(preset: str | None, seed: int) -> str:
+def render_settlement(preset: str | None, seed: int, theme: str = "parchment") -> str:
     cfg = SettlementConfig.preset(preset) if preset else None
     town = SettlementGenerator(SeededRNG(seed)).generate(TOWN_W, TOWN_H, cfg)
-    return SettlementSVGRenderer(scale=TOWN_SCALE).render(town)
+    return SettlementSVGRenderer(scale=TOWN_SCALE, theme=theme).render(town)
 
 
 def render_roads(seed: int = 7) -> str:
@@ -198,6 +199,9 @@ def main() -> None:
     emit("theme-neon", render_themed("neon"))
     emit("theme-dune", render_themed("dune"))
     emit("theme-blueprint", render_themed("blueprint"))
+    # The same theme drives the town & dungeon renderers too.
+    emit("theme-citadel-neon", render_settlement("citadel", seed=3, theme="neon"))
+    emit("theme-dungeon-blueprint", render_dungeon(theme="blueprint"))
 
     # AtlasRenderer thumbnail — a direct PNG (no SVG), from the bundled sample pack.
     atlas_png = render_atlas(seed=5)

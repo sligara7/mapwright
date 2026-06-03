@@ -34,6 +34,15 @@ re-skinned by swapping a `Theme` (palette + biome vocabulary). No regeneration:
 </tr>
 </table>
 
+The same `theme=` drives the **town and dungeon** renderers too — one skin across all three:
+
+<table>
+<tr>
+<td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/theme-citadel-neon.png" alt="neon-themed walled citadel"><br><sub><code>Settlement, theme="neon"</code></sub></td>
+<td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/theme-dungeon-blueprint.png" alt="blueprint-themed dungeon"><br><sub><code>Dungeon, theme="blueprint"</code></sub></td>
+</tr>
+</table>
+
 Below: deterministic shaded-relief renders of each built-in preset (or a dungeon),
 produced by [`examples/gallery.py`](examples/gallery.py):
 
@@ -191,14 +200,15 @@ Settlement presets: `hamlet`, `village`, `town`, `city`, `port`, `citadel`.
 | `RegionalTerrainGenerator` | Voronoi cells (Lloyd-relaxed) → **tectonic-plate** heightmap (organic coasts + mountain ranges at plate collisions; percentile sea level) → Planchon–Darboux depression fill → flux + hydraulic/creep erosion → rivers + inland lakes → latitude/elevation climate with **rain-shadow** → Whittaker biomes. |
 | `compute_cell_polygons` | Reconstructs convex Voronoi polygons (half-plane clipping) for vector rendering. |
 | `RegionalSVGRenderer` | Shaded-relief (hillshade) SVG: biome polygons, coastline, rivers, roads, labelled markers. Takes a `theme=`. |
-| `Theme` / `THEMES` | A render palette + biome vocabulary; re-skins the same terrain (parchment / neon / dune / blueprint, or your own). The "Dominant Medium" layer. |
+| `Theme` / `THEMES` | A render palette + biome vocabulary; re-skins the same terrain — and its towns and dungeons — via one `theme=` (parchment / neon / dune / blueprint, or your own). The "Dominant Medium" layer. |
+| `environment_affordances` / `summarize_cells` | Neutral *ecology* helpers: biome + climate → affordance tags (`scarce_water`, `predator`, …); reduce a set of cells to a `CellSummary` (dominant biome, mean climate, hydrology, affordances). A host decides what tags mean mechanically. |
 | `AtlasRenderer` / `ArtPack` | Hand-drawn / themed PNG: stamps symbols from an external *art pack* (mountains, forests, hills, settlements, sea decorations) onto the terrain. mapwright ships no art — a pack is a skin. Needs `pip install "mapwright[atlas]"`. |
 | `RegionalRoadGenerator` | Connects settlement sites with trade routes — an MST whose edges are A*-routed over the terrain (avoids sea, climbs/crosses rivers at a cost). |
 | `RegionGenerator` | Partitions land into named factions/territories: spread capitals seed a flood fill over the land graph (sea divides them); each `Region` is Markov-named. |
 | `DungeonGenerator` | BSP-partitioned rooms + minimum-spanning-tree corridors → rooms, corridor cells, and a walkable grid (with `Dungeon.ascii()`). |
-| `DungeonSVGRenderer` | Renders a `Dungeon` to SVG: walls, carved floor, room outlines, optional tile grid and per-room labels. |
+| `DungeonSVGRenderer` | Renders a `Dungeon` to SVG: walls, carved floor, room outlines, optional tile grid and per-room labels. Takes a `theme=`. |
 | `SettlementGenerator` | Self-contained town layout: an organic footprint divided into named Voronoi **wards** (market, docks, …), each subdivided into building **lots**, a **street** network (MST over ward adjacency + main roads from gates to the market), an optional defensive **wall** (towers + gate gaps, opened at the harbour when coastal), and optional coastline. |
-| `SettlementSVGRenderer` | Renders a `Settlement` to SVG: sea, footprint, kind-coloured wards, building lots, streets, wall with towers/gatehouses, labels. |
+| `SettlementSVGRenderer` | Renders a `Settlement` to SVG: sea, footprint, kind-coloured wards, building lots, streets, wall with towers/gatehouses, labels. Takes a `theme=`. |
 
 Everything is neutral: `RegionalTerrainGenerator` returns a `TerrainResult` of `TerrainCell`s
 (each with a `Biome`), and you decide how a `Biome` maps to your world.
@@ -261,18 +271,23 @@ regenerating anything. The neutral `Biome` enum never changes; a theme just deci
 each biome looks and is named:
 
 ```python
-from mapwright import RegionalSVGRenderer, THEMES
+from mapwright import RegionalSVGRenderer, SettlementSVGRenderer, DungeonSVGRenderer, THEMES
 
-svg = RegionalSVGRenderer(theme="neon").render(terrain, markers, roads=roads)
+svg  = RegionalSVGRenderer(theme="neon").render(terrain, markers, roads=roads)
+town = SettlementSVGRenderer(theme="neon").render(settlement)   # same theme skins the town
+dgn  = DungeonSVGRenderer(theme="blueprint").render(dungeon)    # …and the dungeon
 # built-ins: "parchment" (default), "neon" (Tron/digital-grid), "dune" (sand), "blueprint"
 THEMES["neon"].biome_label(Biome.OCEAN)   # -> "Void"  (the vocabulary layer)
 ```
 
-A `Theme` is plain hex-string data (JSON-friendly), so a host — or the same image service
-that makes art packs — can author new ones. This is the "Dominant Medium" idea from
-mapwright's longer-term vision: a sand planet, a digital grid, and an irradiated waste are
-the *same map* wearing different skins. Pair a theme with a matching `ArtPack` for a full
-restyle of both the vector and hand-drawn renders.
+All three renderers take the same `theme=`, so one theme skins the world map, its towns,
+and its dungeons together (a `Theme` carries nested `SettlementPalette` + `DungeonPalette`,
+importable from `mapwright.themes` for custom packs). A `Theme` is plain hex-string data
+(JSON-friendly), so a host — or the same image service that makes art packs — can author
+new ones. This is the "Dominant Medium" idea from mapwright's longer-term vision: a sand
+planet, a digital grid, and an irradiated waste are the *same map* wearing different skins.
+Pair a theme with a matching `ArtPack` for a full restyle of both the vector and hand-drawn
+renders.
 
 ## Determinism
 

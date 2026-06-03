@@ -18,43 +18,25 @@ from typing import Optional
 
 from ._geometry import clip_halfplane, polygon_centroid
 from .settlement import Settlement
+from .themes import DEFAULT_THEME, Theme, get_theme
 
-# Ward fill by kind (parchment-ish town palette); falls back to residential.
-_WARD_RGB: dict[str, tuple[int, int, int]] = {
-    "market": (217, 192, 138),
-    "residential": (205, 191, 158),
-    "craftsmen": (194, 180, 143),
-    "noble": (216, 205, 176),
-    "slums": (179, 166, 132),
-    "temple": (223, 214, 192),
-    "garrison": (185, 169, 140),
-    "docks": (174, 187, 176),
-}
-_WARD_DEFAULT = (205, 191, 158)
-_WARD_STROKE = (74, 66, 48)
-_BUILDING = (125, 108, 82)
-_BUILDING_STROKE = (74, 62, 46)
-_ROAD = (228, 217, 188)        # pale road surface
-_ROAD_CASING = (108, 96, 74)   # darker edge so roads read over any fill
-_FOOTPRINT = (230, 220, 192)
-_COUNTRYSIDE = (201, 210, 187)
-_WATER = (47, 109, 143)
-_WALL = (60, 54, 40)
-_TOWER_EDGE = (28, 24, 16)
-_LABEL = (35, 33, 28)
-_LABEL_HALO = (247, 243, 234)
-
-
-def _rgb(c: tuple[int, int, int]) -> str:
-    return "#%02x%02x%02x" % c
+# Town colours come from the theme's SettlementPalette (see themes.py); the
+# default "parchment" palette reproduces the classic town look byte-for-byte.
 
 
 class SettlementSVGRenderer:
-    """Renders a :class:`Settlement` to an SVG document string."""
+    """Renders a :class:`Settlement` to an SVG document string.
 
-    def __init__(self, scale: float = 8.0):
+    ``theme`` selects the palette (a name from :data:`~mapwright.themes.THEMES`
+    or a :class:`~mapwright.themes.Theme`); the default ``"parchment"`` is the
+    classic look.
+    """
+
+    def __init__(self, scale: float = 8.0, theme: str | Theme = DEFAULT_THEME):
         # scale = pixels per tile-unit.
         self.scale = scale
+        self.theme = get_theme(theme)
+        self._pal = self.theme.settlement
 
     def render(
         self,
@@ -79,7 +61,7 @@ class SettlementSVGRenderer:
         parts: list[str] = [
             f'<svg xmlns="http://www.w3.org/2000/svg" width="{w_px:.0f}" '
             f'height="{h_px:.0f}" viewBox="0 0 {w_px:.0f} {h_px:.0f}">',
-            f'<rect width="{w_px:.0f}" height="{h_px:.0f}" fill="{_rgb(_COUNTRYSIDE)}"/>',
+            f'<rect width="{w_px:.0f}" height="{h_px:.0f}" fill="{self._pal.countryside}"/>',
         ]
 
         # 1. Sea on the water side of the coastline.
@@ -89,15 +71,15 @@ class SettlementSVGRenderer:
                 parts.append(water)
 
         # 2. Town footprint (land base under the wards).
-        parts.append(self._poly_svg(town.footprint, fill=_rgb(_FOOTPRINT)))
+        parts.append(self._poly_svg(town.footprint, fill=self._pal.footprint))
 
         # 3. Wards.
         parts.append('<g stroke="%s" stroke-width="1" stroke-linejoin="round">'
-                     % _rgb(_WARD_STROKE))
+                     % self._pal.ward_stroke)
         for ward in town.wards:
             if len(ward.polygon) < 3:
                 continue
-            fill = _rgb(_WARD_RGB.get(ward.kind, _WARD_DEFAULT))
+            fill = self._pal.ward_fill(ward.kind)
             parts.append(self._poly_svg(ward.polygon, fill=fill, stroke=None))
         parts.append("</g>")
 
@@ -114,7 +96,7 @@ class SettlementSVGRenderer:
             parts.append(self._wall_svg(town))
         else:
             parts.append(self._poly_svg(town.footprint, fill="none",
-                                        stroke=_rgb(_WALL), stroke_width=1.5))
+                                        stroke=self._pal.wall, stroke_width=1.5))
 
         # 7. Labels + title.
         if show_labels and label != "none":
@@ -158,7 +140,7 @@ class SettlementSVGRenderer:
         if len(sea) < 3:
             return ""
         pts = " ".join(f"{x * s:.1f},{y * s:.1f}" for x, y in sea)
-        return f'<polygon points="{pts}" fill="{_rgb(_WATER)}"/>'
+        return f'<polygon points="{pts}" fill="{self._pal.water}"/>'
 
     def _lots_svg(self, town: Settlement) -> str:
         s = self.scale
@@ -170,7 +152,7 @@ class SettlementSVGRenderer:
             rects.append(f'<polygon points="{pts}"/>')
         if not rects:
             return ""
-        return (f'<g fill="{_rgb(_BUILDING)}" stroke="{_rgb(_BUILDING_STROKE)}" '
+        return (f'<g fill="{self._pal.building}" stroke="{self._pal.building_stroke}" '
                 f'stroke-width="0.5" stroke-linejoin="round">'
                 + "".join(rects) + "</g>")
 
@@ -188,10 +170,10 @@ class SettlementSVGRenderer:
         out = ['<g fill="none" stroke-linecap="round" stroke-linejoin="round">']
         # Casings first (a darker, wider stroke underneath), then the pale surface.
         for d, w in roads:
-            out.append(f'<path d="{d}" stroke="{_rgb(_ROAD_CASING)}" '
+            out.append(f'<path d="{d}" stroke="{self._pal.road_casing}" '
                        f'stroke-width="{w + 1.6:.1f}"/>')
         for d, w in roads:
-            out.append(f'<path d="{d}" stroke="{_rgb(_ROAD)}" stroke-width="{w:.1f}"/>')
+            out.append(f'<path d="{d}" stroke="{self._pal.road}" stroke-width="{w:.1f}"/>')
         out.append("</g>")
         return "".join(out)
 
@@ -215,18 +197,18 @@ class SettlementSVGRenderer:
             segs.append(f'M{a2[0] * s:.1f},{a2[1] * s:.1f} L{b2[0] * s:.1f},{b2[1] * s:.1f}')
 
         out: list[str] = [
-            f'<path d="{" ".join(segs)}" fill="none" stroke="{_rgb(_WALL)}" '
+            f'<path d="{" ".join(segs)}" fill="none" stroke="{self._pal.wall}" '
             f'stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>'
         ]
         # Towers at each corner.
-        out.append(f'<g fill="{_rgb(_WALL)}" stroke="{_rgb(_TOWER_EDGE)}" stroke-width="0.6">')
+        out.append(f'<g fill="{self._pal.wall}" stroke="{self._pal.tower_edge}" stroke-width="0.6">')
         for x, y in ring:
             out.append(f'<circle cx="{x * s:.1f}" cy="{y * s:.1f}" r="2.6"/>')
         out.append("</g>")
         # Gatehouses (square) at the gates.
         if wall.gates:
             r = 3.0
-            out.append(f'<g fill="{_rgb(_WALL)}" stroke="{_rgb(_TOWER_EDGE)}" stroke-width="0.8">')
+            out.append(f'<g fill="{self._pal.wall}" stroke="{self._pal.tower_edge}" stroke-width="0.8">')
             for x, y in wall.gates:
                 out.append(f'<rect x="{x * s - r:.1f}" y="{y * s - r:.1f}" '
                            f'width="{2 * r:.1f}" height="{2 * r:.1f}"/>')
@@ -255,8 +237,8 @@ class SettlementSVGRenderer:
             cx, cy = ward.center[0] * s, ward.center[1] * s
             out.append(
                 f'<text x="{cx:.1f}" y="{cy + 3:.1f}" '
-                f'stroke="{_rgb(_LABEL_HALO)}" stroke-width="2.5" paint-order="stroke" '
-                f'fill="{_rgb(_LABEL)}">{su.escape(text)}</text>'
+                f'stroke="{self._pal.label_halo}" stroke-width="2.5" paint-order="stroke" '
+                f'fill="{self._pal.label}">{su.escape(text)}</text>'
             )
         out.append("</g>")
         return "".join(out)
@@ -265,6 +247,6 @@ class SettlementSVGRenderer:
         return (
             f'<text x="{w_px / 2:.1f}" y="20" text-anchor="middle" '
             f'font-family="Georgia, serif" font-size="16" font-weight="bold" '
-            f'stroke="{_rgb(_LABEL_HALO)}" stroke-width="3" paint-order="stroke" '
-            f'fill="{_rgb(_LABEL)}">{su.escape(town.name)}</text>'
+            f'stroke="{self._pal.label_halo}" stroke-width="3" paint-order="stroke" '
+            f'fill="{self._pal.label}">{su.escape(town.name)}</text>'
         )

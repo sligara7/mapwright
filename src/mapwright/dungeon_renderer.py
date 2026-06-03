@@ -16,27 +16,29 @@ import xml.sax.saxutils as su
 from typing import Optional, Sequence, Union
 
 from .dungeon import Dungeon
+from .themes import DEFAULT_THEME, Theme, get_theme
 
-# Palette — muted stone floor on a near-black wall, dark room outlines.
-_WALL_BG = "#1b1b22"
-_FLOOR = "#c9bd9e"
-_ROOM_FILL = "#d8cdae"
-_ROOM_STROKE = "#3a3527"
-_GRID_LINE = "#000000"  # hairline; opacity applied separately (SVG 1.1-safe)
-_GRID_OPACITY = 0.13
-_LABEL = "#23211c"
-_LABEL_HALO = "#f7f3ea"
+# Colours come from the theme's DungeonPalette (see themes.py); the default
+# "parchment" palette reproduces the classic muted-stone look byte-for-byte.
+_GRID_OPACITY = 0.13  # grid-line opacity (not a colour) — SVG 1.1-safe
 
 # labels=True numbers rooms; a sequence supplies explicit strings; None = off.
 LabelSpec = Union[bool, Sequence[str], None]
 
 
 class DungeonSVGRenderer:
-    """Renders a :class:`Dungeon` to an SVG document string."""
+    """Renders a :class:`Dungeon` to an SVG document string.
 
-    def __init__(self, scale: float = 14.0):
+    ``theme`` selects the palette (a name from :data:`~mapwright.themes.THEMES`
+    or a :class:`~mapwright.themes.Theme`); the default ``"parchment"`` is the
+    classic look.
+    """
+
+    def __init__(self, scale: float = 14.0, theme: str | Theme = DEFAULT_THEME):
         # scale = pixels per dungeon tile.
         self.scale = scale
+        self.theme = get_theme(theme)
+        self._pal = self.theme.dungeon
 
     def render(
         self,
@@ -58,7 +60,7 @@ class DungeonSVGRenderer:
         parts: list[str] = [
             f'<svg xmlns="http://www.w3.org/2000/svg" width="{w_px:.0f}" '
             f'height="{h_px:.0f}" viewBox="0 0 {w_px:.0f} {h_px:.0f}">',
-            f'<rect width="{w_px:.0f}" height="{h_px:.0f}" fill="{_WALL_BG}"/>',
+            f'<rect width="{w_px:.0f}" height="{h_px:.0f}" fill="{self._pal.wall_bg}"/>',
         ]
 
         # 1. Floor — run-length rows of the walkable grid (one rect per run keeps
@@ -102,7 +104,7 @@ class DungeonSVGRenderer:
                     x += 1
         if not rects:
             return ""
-        return f'<g fill="{_FLOOR}">' + "".join(rects) + "</g>"
+        return f'<g fill="{self._pal.floor}">' + "".join(rects) + "</g>"
 
     # -- grid ------------------------------------------------------------
 
@@ -114,7 +116,7 @@ class DungeonSVGRenderer:
             segs.append(f'M{x * s:.1f},0 L{x * s:.1f},{h_px:.1f}')
         for y in range(dungeon.height + 1):
             segs.append(f'M0,{y * s:.1f} L{w_px:.1f},{y * s:.1f}')
-        return (f'<path d="{" ".join(segs)}" stroke="{_GRID_LINE}" '
+        return (f'<path d="{" ".join(segs)}" stroke="{self._pal.grid_line}" '
                 f'stroke-opacity="{_GRID_OPACITY}" stroke-width="1" fill="none"/>')
 
     # -- rooms -----------------------------------------------------------
@@ -129,7 +131,7 @@ class DungeonSVGRenderer:
             )
         if not rects:
             return ""
-        return (f'<g fill="{_ROOM_FILL}" stroke="{_ROOM_STROKE}" '
+        return (f'<g fill="{self._pal.room_fill}" stroke="{self._pal.room_stroke}" '
                 f'stroke-width="2" stroke-linejoin="round">'
                 + "".join(rects) + "</g>")
 
@@ -155,8 +157,8 @@ class DungeonSVGRenderer:
             cx, cy = (room.x + room.w / 2) * s, (room.y + room.h / 2) * s
             out.append(
                 f'<text x="{cx:.1f}" y="{cy + 4:.1f}" '
-                f'stroke="{_LABEL_HALO}" stroke-width="3" paint-order="stroke" '
-                f'fill="{_LABEL}">{su.escape(text)}</text>'
+                f'stroke="{self._pal.label_halo}" stroke-width="3" paint-order="stroke" '
+                f'fill="{self._pal.label}">{su.escape(text)}</text>'
             )
         out.append("</g>")
         return "".join(out)

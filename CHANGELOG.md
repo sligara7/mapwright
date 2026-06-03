@@ -8,6 +8,32 @@ All notable changes to mapwright are documented here. The format follows
 `tests/test_api_contract.py`). While the version is `0.x`, minor versions may
 make breaking changes; these will always be noted here.
 
+## [0.18.0] — 2026-06-02
+
+### Added
+- **Environmental affordances + cell aggregation — `affordances` module.** Two
+  domain-neutral helpers for turning terrain into a place's *environment*:
+  - `environment_affordances(biome, temperature, moisture)` → neutral
+    ecology-level tags (`scarce_water`, `disease_vector`, `predator`,
+    `extreme_heat`, …). Biome-base tags plus climate-driven additions, so a
+    hot+wet forest reads as a steamy jungle. A host app decides what, if
+    anything, tags mean mechanically; this library never touches game rules.
+  - `summarize_cells(cells)` → `CellSummary` (dominant biome, mean climate,
+    hydrology flags, water fraction, affordances) for a footprint / explored
+    area / whole map. Deterministic; ties broken by lowest `Biome` value.
+  - New exports: `environment_affordances`, `summarize_cells`, `CellSummary`
+    (purely additive to `__all__`).
+- **Themes extended to the town & dungeon renderers.** A `Theme` now carries
+  nested `SettlementPalette` + `DungeonPalette` sub-palettes, and
+  `SettlementSVGRenderer` / `DungeonSVGRenderer` take a `theme=` just like the
+  regional renderer — so one theme skins all three. The four built-ins
+  (`parchment`, `neon`, `dune`, `blueprint`) now style towns and dungeons
+  cohesively (e.g. a neon citadel, a blueprint dungeon). Sub-palettes default to
+  parchment, so a theme that only restyles the regional map still drives the
+  other renderers, and the default output is **byte-identical**. `SettlementPalette`
+  / `DungeonPalette` are importable from `mapwright.themes` for authoring custom
+  themes. Gallery gains a themed town + dungeon.
+
 ## [0.17.0] — 2026-06-02
 
 ### Added

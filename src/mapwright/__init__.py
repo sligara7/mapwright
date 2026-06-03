@@ -24,6 +24,11 @@ Quickstart::
     svg = RegionalSVGRenderer().render(terrain)
 """
 
+from .affordances import (
+    CellSummary,
+    environment_affordances,
+    summarize_cells,
+)
 from .atlas_renderer import ArtPack, AtlasRenderer
 from .config import WorldMapConfig, PRESETS
 from .dungeon import Dungeon, DungeonConfig, DungeonGenerator, Rect
@@ -55,12 +60,15 @@ from .terrain import (
     compute_cell_polygons,
 )
 
-__version__ = "0.17.0"
+__version__ = "0.18.0"
 
 __all__ = [
     "SeededRNG",
     "WorldMapConfig",
     "PRESETS",
+    "CellSummary",
+    "environment_affordances",
+    "summarize_cells",
     "NameGenerator",
     "MarkovNameGenerator",
     "NAMEBASES",

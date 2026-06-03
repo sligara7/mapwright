@@ -33,6 +33,69 @@ def _hex_to_rgb(value: str) -> tuple[int, int, int]:
 
 
 @dataclass(frozen=True)
+class SettlementPalette:
+    """Colours for :class:`~mapwright.settlement_renderer.SettlementSVGRenderer`.
+
+    ``wards`` maps a ward *kind* (``"market"``, ``"docks"``, …) to a fill; any
+    kind not listed falls back to ``ward_default``.
+    """
+
+    countryside: str
+    footprint: str
+    water: str
+    ward_default: str
+    ward_stroke: str
+    building: str
+    building_stroke: str
+    road: str
+    road_casing: str
+    wall: str
+    tower_edge: str
+    label: str
+    label_halo: str
+    wards: dict[str, str] = field(default_factory=dict)
+
+    def ward_fill(self, kind: str) -> str:
+        return self.wards.get(kind, self.ward_default)
+
+    def __hash__(self) -> int:  # dict field ⇒ hash on the stable scalar identity
+        return hash((self.countryside, self.footprint, self.wall, self.road))
+
+
+@dataclass(frozen=True)
+class DungeonPalette:
+    """Colours for :class:`~mapwright.dungeon_renderer.DungeonSVGRenderer`."""
+
+    wall_bg: str
+    floor: str
+    room_fill: str
+    room_stroke: str
+    grid_line: str
+    label: str
+    label_halo: str
+
+
+# Parchment sub-palettes — the canonical defaults (byte-identical to the colours
+# the settlement / dungeon renderers used before themes existed).
+_PARCHMENT_SETTLEMENT = SettlementPalette(
+    countryside="#c9d2bb", footprint="#e6dcc0", water="#2f6d8f",
+    ward_default="#cdbf9e", ward_stroke="#4a4230",
+    building="#7d6c52", building_stroke="#4a3e2e",
+    road="#e4d9bc", road_casing="#6c604a",
+    wall="#3c3628", tower_edge="#1c1810",
+    label="#23211c", label_halo="#f7f3ea",
+    wards={"market": "#d9c08a", "residential": "#cdbf9e", "craftsmen": "#c2b48f",
+           "noble": "#d8cdb0", "slums": "#b3a684", "temple": "#dfd6c0",
+           "garrison": "#b9a98c", "docks": "#aebbb0"},
+)
+_PARCHMENT_DUNGEON = DungeonPalette(
+    wall_bg="#1b1b22", floor="#c9bd9e", room_fill="#d8cdae",
+    room_stroke="#3a3527", grid_line="#000000",
+    label="#23211c", label_halo="#f7f3ea",
+)
+
+
+@dataclass(frozen=True)
 class Theme:
     """A render palette + biome vocabulary. All colours are ``"#rrggbb"`` hex.
 
@@ -55,6 +118,10 @@ class Theme:
     label_fill: str
     label_halo: str
     biome_names: dict[Biome, str] = field(default_factory=dict)
+    # Sub-palettes for the town & dungeon renderers; default to parchment so a
+    # theme that only restyles the regional map still drives all three renderers.
+    settlement: SettlementPalette = _PARCHMENT_SETTLEMENT
+    dungeon: DungeonPalette = _PARCHMENT_DUNGEON
 
     def __post_init__(self) -> None:
         missing = [b.name for b in _ALL_BIOMES if b not in self.biomes]
@@ -116,6 +183,21 @@ _NEON = Theme(
     biome_names={Biome.OCEAN: "Void", Biome.FOREST: "Data Grove",
                  Biome.MOUNTAIN: "Spire", Biome.DESERT: "Null Sector",
                  Biome.LAKE: "Data Pool"},
+    settlement=SettlementPalette(
+        countryside="#05060a", footprint="#0a1420", water="#06121f",
+        ward_default="#0e2233", ward_stroke="#00e5ff",
+        building="#0a3a4a", building_stroke="#00e5ff",
+        road="#ff2bd6", road_casing="#1a0a2a",
+        wall="#00343f", tower_edge="#00e5ff",
+        label="#aef7ff", label_halo="#05060a",
+        wards={"market": "#103a4a", "temple": "#13314a", "noble": "#1b2a52",
+               "docks": "#08303a", "garrison": "#10202e", "craftsmen": "#0e2838"},
+    ),
+    dungeon=DungeonPalette(
+        wall_bg="#05060a", floor="#0a3a4a", room_fill="#0e4a5e",
+        room_stroke="#00e5ff", grid_line="#00e5ff",
+        label="#aef7ff", label_halo="#05060a",
+    ),
 )
 
 # "dune" — Tatooine / sand medium: warm monochrome ochre everywhere; even the
@@ -136,6 +218,22 @@ _DUNE = Theme(
     label_fill="#3a2410", label_halo="#efe6cf",
     biome_names={Biome.OCEAN: "Sand Sea", Biome.FOREST: "Scrubland",
                  Biome.SWAMP: "Saltflat", Biome.LAKE: "Oasis"},
+    settlement=SettlementPalette(
+        countryside="#cbb277", footprint="#e0cd9c", water="#c2a062",
+        ward_default="#d8c48f", ward_stroke="#7a5e34",
+        building="#b89a63", building_stroke="#6e5230",
+        road="#efe2c2", road_casing="#8a6e3c",
+        wall="#7a5e34", tower_edge="#4a3a1c",
+        label="#3a2410", label_halo="#efe6cf",
+        wards={"market": "#e2c87c", "temple": "#e8dcb8", "noble": "#e0d2a0",
+               "docks": "#cbbf95", "slums": "#c2ad78", "garrison": "#c8b074",
+               "craftsmen": "#d2bd80"},
+    ),
+    dungeon=DungeonPalette(
+        wall_bg="#3a2a14", floor="#cbb277", room_fill="#dcc78f",
+        room_stroke="#6e5230", grid_line="#3a2410",
+        label="#3a2410", label_halo="#efe6cf",
+    ),
 )
 
 # "blueprint" — technical schematic: navy field, monochrome cyan line-work, with
@@ -154,6 +252,22 @@ _BLUEPRINT = Theme(
     region_border="#ff9e3d", region_label="#ffce9e",
     settlement_fill="#8fe6ff", settlement_stroke="#071925",
     label_fill="#d8f4ff", label_halo="#071925",
+    settlement=SettlementPalette(
+        countryside="#071925", footprint="#0a2236", water="#0a2236",
+        ward_default="#123a55", ward_stroke="#8fe6ff",
+        building="#14506a", building_stroke="#8fe6ff",
+        road="#cfeff8", road_casing="#0a2236",
+        wall="#236f86", tower_edge="#8fe6ff",
+        label="#d8f4ff", label_halo="#071925",
+        wards={"market": "#1a5e78", "temple": "#236f86", "noble": "#2c7e92",
+               "docks": "#103f54", "slums": "#0f3146", "garrison": "#143f54",
+               "craftsmen": "#174a60"},
+    ),
+    dungeon=DungeonPalette(
+        wall_bg="#071925", floor="#123a55", room_fill="#1a5e78",
+        room_stroke="#8fe6ff", grid_line="#8fe6ff",
+        label="#d8f4ff", label_halo="#071925",
+    ),
 )
 
 THEMES: dict[str, Theme] = {t.name: t for t in (_PARCHMENT, _NEON, _DUNE, _BLUEPRINT)}
