@@ -98,6 +98,10 @@ class SettlementSVGRenderer:
             parts.append(self._poly_svg(town.footprint, fill="none",
                                         stroke=self._pal.wall, stroke_width=1.5))
 
+        # 6b. Landmark marker (when a purpose set one) — a star over its ward.
+        if town.landmark is not None:
+            parts.append(self._landmark_svg(town))
+
         # 7. Labels + title.
         if show_labels and label != "none":
             parts.append(self._labels_svg(town, label))
@@ -224,6 +228,24 @@ class SettlementSVGRenderer:
         length = math.hypot(dx, dy) or 1.0
         d = min(d, length * 0.5)
         return (p[0] + dx / length * d, p[1] + dy / length * d)
+
+    def _landmark_svg(self, town: Settlement) -> str:
+        """A five-pointed star at the landmark ward's centre, haloed for contrast."""
+        s = self.scale
+        lm = town.landmark
+        cx, cy = lm.center[0] * s, lm.center[1] * s
+        outer, inner = 6.5, 2.7
+        pts: list[str] = []
+        for i in range(10):
+            ang = -math.pi / 2 + i * math.pi / 5  # point up; alternate out/in
+            r = outer if i % 2 == 0 else inner
+            pts.append(f"{cx + r * math.cos(ang):.1f},{cy + r * math.sin(ang):.1f}")
+        poly = " ".join(pts)
+        return (
+            f'<polygon points="{poly}" fill="{self._pal.wall}" '
+            f'stroke="{self._pal.label_halo}" stroke-width="1.4" '
+            f'stroke-linejoin="round" paint-order="stroke"/>'
+        )
 
     def _labels_svg(self, town: Settlement, label: str) -> str:
         s = self.scale

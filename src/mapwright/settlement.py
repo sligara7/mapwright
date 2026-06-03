@@ -149,6 +149,12 @@ _ENUM_SPEC: list[tuple] = [
     ("layout", ("organic", "grid"), "organic",
      "Street pattern: 'organic' = winding ward-to-ward roads (the classic look); "
      "'grid' = a geometric street grid aligned to the town's long axis."),
+    ("purpose", ("general", "trade", "fortress", "religious", "harbor",
+                 "extraction", "transit"), "general",
+     "What the town exists for. Anything but 'general' seeds a central landmark "
+     "(a special ward the main roads focus on) and biases the ward-kind mix: "
+     "trade→market, fortress→citadel, religious→temple, harbor→docks, "
+     "extraction→mine, transit→plaza."),
 ]
 
 # Ward kinds. One central market, optional dockside ward when coastal, and a
@@ -159,6 +165,29 @@ _OTHER_KINDS: list[str] = (
     ["residential"] * 5 + ["craftsmen"] * 3 + ["noble"] * 2 + ["slums"] * 2
     + ["temple"] * 1 + ["garrison"] * 1
 )
+
+# Town purpose → the kind of the central landmark ward (absent ⇒ no landmark, the
+# central ward stays a plain market). Some reuse existing ward kinds (market,
+# temple, docks); citadel/mine/plaza are landmark-only kinds.
+_LANDMARK_KIND: dict[str, str] = {
+    "trade": "market",
+    "fortress": "citadel",
+    "religious": "temple",
+    "harbor": "docks",
+    "extraction": "mine",
+    "transit": "plaza",
+}
+
+# Town purpose → extra ward kinds folded into the weighted bag (biases the mix
+# toward what the town is for). "general" has no entry ⇒ the bag is unchanged.
+_PURPOSE_WARD_BIAS: dict[str, list[str]] = {
+    "trade": ["craftsmen"] * 3,
+    "fortress": ["garrison"] * 3,
+    "religious": ["temple"] * 3,
+    "harbor": ["craftsmen"] * 2,
+    "extraction": ["slums"] * 2 + ["craftsmen"] * 2,
+    "transit": ["residential"] * 2 + ["craftsmen"] * 1,
+}
 
 # Per-ward lot sizing: a multiplier on the base ``lot_size`` (bigger ⇒ larger,
 # fewer plots), or ``None`` for an open ward with no buildings. Kinds absent from
@@ -188,14 +217,16 @@ def _block_jitter_factor(era: float, wealth: float) -> float:
     return _clamp(1.0 - 1.3 * order, 0.25, 1.7)
 
 
-def _ward_kind_pool(wealth: float) -> list[str]:
-    """The weighted ward-kind bag, shifted by wealth: poor ⇒ more slums, rich ⇒
-    more noble/temple. Equals ``_OTHER_KINDS`` exactly at ``wealth == 0.5``."""
+def _ward_kind_pool(wealth: float, purpose: str = "general") -> list[str]:
+    """The weighted ward-kind bag, shifted by wealth (poor ⇒ more slums, rich ⇒
+    more noble/temple) and biased by ``purpose``. Equals ``_OTHER_KINDS`` exactly
+    at ``wealth == 0.5`` and ``purpose == "general"``."""
     noble = max(0, round(2 + (wealth - 0.5) * 5))
     temple = max(0, round(1 + (wealth - 0.5) * 2))
     slums = max(0, round(2 - (wealth - 0.5) * 6))
     return (["residential"] * 5 + ["craftsmen"] * 3 + ["noble"] * noble
-            + ["slums"] * slums + ["temple"] * temple + ["garrison"] * 1)
+            + ["slums"] * slums + ["temple"] * temple + ["garrison"] * 1
+            + _PURPOSE_WARD_BIAS.get(purpose, []))
 
 
 @dataclass
@@ -214,6 +245,8 @@ class SettlementConfig:
     """0..1 — ancient/organic ⇄ modern/grid-regular blocks."""
     layout: str = "organic"
     """Street pattern: 'organic' (winding ward roads) or 'grid' (geometric grid)."""
+    purpose: str = "general"
+    """What the town is for; non-'general' seeds a central landmark + biases wards."""
     walled: bool = False
     """Whether the town has a wall (stored now, rendered in a later version)."""
     coastal: bool = False
@@ -239,6 +272,7 @@ class SettlementConfig:
             "wealth": self.wealth,
             "era": self.era,
             "layout": self.layout,
+            "purpose": self.purpose,
             "walled": self.walled,
             "coastal": self.coastal,
         }
@@ -306,6 +340,12 @@ SETTLEMENT_PRESETS: dict[str, dict] = {
     "metropolis": {"population": 30000, "wealth": 0.92, "era": 0.95, "irregularity": 0.18},
     "grid_city": {"population": 16000, "wealth": 0.7, "era": 0.95,
                   "layout": "grid", "irregularity": 0.25},
+    "fortress_town": {"population": 5000, "purpose": "fortress", "walled": True,
+                      "irregularity": 0.3},
+    "pilgrimage_site": {"population": 3000, "purpose": "religious",
+                        "irregularity": 0.5},
+    "mining_camp": {"population": 1500, "purpose": "extraction", "wealth": 0.2,
+                    "irregularity": 0.7},
 }
 
 
@@ -336,6 +376,35 @@ class Ward:
             center=(float(data["center"][0]), float(data["center"][1])),
             name=data["name"],
             kind=data["kind"],
+        )
+
+
+@dataclass
+class Landmark:
+    """The town's defining feature (set by a non-'general' ``purpose``): the
+    central ward promoted to a special ``kind`` (citadel/temple/mine/…), which the
+    main roads focus on. ``ward`` is the id of that ward."""
+
+    ward: int
+    kind: str
+    center: Point
+    name: str
+
+    def to_dict(self) -> dict:
+        return {
+            "ward": self.ward,
+            "kind": self.kind,
+            "center": [self.center[0], self.center[1]],
+            "name": self.name,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Landmark":
+        return cls(
+            ward=int(data["ward"]),
+            kind=data["kind"],
+            center=(float(data["center"][0]), float(data["center"][1])),
+            name=data["name"],
         )
 
 
@@ -408,7 +477,8 @@ class Wall:
 
 @dataclass
 class Settlement:
-    """Generated town layout: footprint, wards, lots, streets, gates, wall, coast."""
+    """Generated town layout: footprint, wards, lots, streets, gates, wall,
+    landmark, coast."""
 
     width: int
     height: int
@@ -419,8 +489,10 @@ class Settlement:
     streets: list[Street] = field(default_factory=list)
     gates: list[Point] = field(default_factory=list)
     wall: Wall | None = None
+    landmark: Landmark | None = None  # set by a non-'general' purpose
     walled: bool = False
     coastal: bool = False
+    purpose: str = "general"
     water_edge: tuple[Point, Point] | None = None  # coastline segment, if coastal
 
     # -- serialisation / interop ----------------------------------------
@@ -428,7 +500,7 @@ class Settlement:
     def to_dict(self) -> dict:
         """A JSON-safe mapping of the whole town, round-tripping via :meth:`from_dict`."""
         return {
-            "schema": "mapwright/settlement@4",
+            "schema": "mapwright/settlement@5",
             "width": self.width,
             "height": self.height,
             "name": self.name,
@@ -438,8 +510,10 @@ class Settlement:
             "streets": [st.to_dict() for st in self.streets],
             "gates": [[x, y] for x, y in self.gates],
             "wall": None if self.wall is None else self.wall.to_dict(),
+            "landmark": None if self.landmark is None else self.landmark.to_dict(),
             "walled": self.walled,
             "coastal": self.coastal,
+            "purpose": self.purpose,
             "water_edge": (
                 None if self.water_edge is None
                 else [[self.water_edge[0][0], self.water_edge[0][1]],
@@ -460,8 +534,11 @@ class Settlement:
             streets=[Street.from_dict(st) for st in data.get("streets", [])],
             gates=[(float(x), float(y)) for x, y in data.get("gates", [])],
             wall=(Wall.from_dict(data["wall"]) if data.get("wall") else None),
+            landmark=(Landmark.from_dict(data["landmark"])
+                      if data.get("landmark") else None),
             walled=bool(data.get("walled", False)),
             coastal=bool(data.get("coastal", False)),
+            purpose=data.get("purpose", "general"),
             water_edge=(None if we is None
                         else ((float(we[0][0]), float(we[0][1])),
                               (float(we[1][0]), float(we[1][1])))),
@@ -506,15 +583,23 @@ class SettlementGenerator:
 
         seeds = self._ward_seeds(footprint, cfg.population)
         polys = voronoi_cells(seeds, footprint)
-        wards = self._build_wards(polys, cfg.coastal, water_edge, culture,
-                                  _ward_kind_pool(cfg.wealth))
+        wards, hub_id = self._build_wards(polys, cfg.coastal, water_edge, culture,
+                                          _ward_kind_pool(cfg.wealth, cfg.purpose),
+                                          cfg.purpose)
+        # The hub (central ward) is what main roads focus on — a landmark when the
+        # purpose set one, otherwise the plain market.
+        hub = wards[hub_id].center if wards else (cx, cy)
+        landmark = None
+        if wards and cfg.purpose in _LANDMARK_KIND:
+            w = wards[hub_id]
+            landmark = Landmark(ward=w.id, kind=w.kind, center=w.center, name=w.name)
         # A grid town aligns both its lots and its streets to the footprint's axes.
         grid_axes = None
         if cfg.layout == "grid":
             _, u, v = self._principal_axis(footprint)
             grid_axes = (u, v)
         lots = self._build_lots(wards, cfg, grid_axes)
-        streets, gates = self._build_streets(wards, footprint, cfg, water_edge)
+        streets, gates = self._build_streets(wards, footprint, cfg, water_edge, hub)
         wall = self._build_wall(footprint, cfg.walled, cfg.coastal, water_edge, gates)
 
         return Settlement(
@@ -527,6 +612,8 @@ class SettlementGenerator:
             streets=streets,
             gates=gates,
             wall=wall,
+            landmark=landmark,
+            purpose=cfg.purpose,
             walled=cfg.walled,
             coastal=cfg.coastal,
             water_edge=water_edge,
@@ -624,18 +711,22 @@ class SettlementGenerator:
         water_edge: tuple[Point, Point] | None,
         culture: str,
         kind_pool: list[str],
-    ) -> list[Ward]:
-        """Name + classify each non-degenerate ward (central = market, coastal
-        nearest-water = docks, rest drawn from the wealth-weighted ``kind_pool``)."""
+        purpose: str = "general",
+    ) -> tuple[list[Ward], int]:
+        """Name + classify each non-degenerate ward (central = market, or a purpose
+        landmark; coastal nearest-water = docks; rest drawn from the weighted
+        ``kind_pool``). Returns the wards and the *hub* ward's id (the central
+        ward — a landmark when ``purpose`` set one, else the market)."""
         valid = [(i, p) for i, p in enumerate(polys) if len(p) >= 3]
         if not valid:
-            return []
+            return [], 0
         centers = {i: polygon_centroid(p) for i, p in valid}
 
         mean_x = sum(c[0] for c in centers.values()) / len(centers)
         mean_y = sum(c[1] for c in centers.values()) / len(centers)
         market = min(centers, key=lambda i: (centers[i][0] - mean_x) ** 2
                      + (centers[i][1] - mean_y) ** 2)
+        hub_kind = _LANDMARK_KIND.get(purpose, _MARKET)  # central ward's kind
 
         docks = None
         if coastal and water_edge is not None:
@@ -649,15 +740,17 @@ class SettlementGenerator:
                             + (centers[i][1] - wy) ** 2)
 
         wards: list[Ward] = []
+        hub_id = 0
         for new_id, (i, poly) in enumerate(valid):
             if i == market:
-                kind = _MARKET
+                kind = hub_kind
+                hub_id = new_id
             elif i == docks:
                 kind = _DOCKS
             else:
                 kind = self._rng.choice(kind_pool)
             wards.append(Ward(new_id, poly, centers[i], self._names.place(culture), kind))
-        return wards
+        return wards, hub_id
 
     # -- lots (recursive bisection of each ward) -------------------------
 
@@ -760,10 +853,12 @@ class SettlementGenerator:
         footprint: list[Point],
         cfg: SettlementConfig,
         water_edge: tuple[Point, Point] | None,
+        hub: Point | None = None,
     ) -> tuple[list[Street], list[Point]]:
         """Build the street network. ``layout="grid"`` lays a geometric grid aligned
         to the town's long axis; otherwise the classic organic network (MST + a few
-        loops over adjacent wards, plus main roads from each gate to the market)."""
+        loops over adjacent wards, plus main roads from each gate to the ``hub`` —
+        the central landmark/market)."""
         if cfg.layout == "grid":
             return self._build_grid_streets(wards, footprint, cfg, water_edge)
         coastal = cfg.coastal
@@ -799,11 +894,14 @@ class SettlementGenerator:
             path = [centers[i], mid, centers[j]] if mid else [centers[i], centers[j]]
             streets.append(Street(path, "minor"))
 
-        # Main roads: market ↔ each gate.
-        market = next((w.center for w in wards if w.kind == _MARKET), wards[0].center)
+        # Main roads: the hub (central landmark/market) ↔ each gate.
+        focus = hub
+        if focus is None:
+            focus = next((w.center for w in wards if w.kind == _MARKET),
+                         wards[0].center)
         gates = self._gates(footprint, coastal, water_edge)
         for gate in gates:
-            streets.append(Street([market, gate], "main"))
+            streets.append(Street([focus, gate], "main"))
         return streets, gates
 
     @staticmethod

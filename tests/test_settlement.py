@@ -47,12 +47,14 @@ class TestSettlementConfig:
         assert schema["additionalProperties"] is False
         assert set(schema["properties"]) == {
             "population", "irregularity", "lot_size", "wealth", "era",
-            "layout", "walled", "coastal"
+            "layout", "purpose", "walled", "coastal"
         }
         assert schema["properties"]["walled"]["type"] == "boolean"
         assert schema["properties"]["lot_size"]["type"] == "number"
         assert schema["properties"]["layout"]["type"] == "string"
         assert schema["properties"]["layout"]["enum"] == ["organic", "grid"]
+        assert schema["properties"]["purpose"]["type"] == "string"
+        assert "fortress" in schema["properties"]["purpose"]["enum"]
 
     def test_layout_invalid_falls_back_to_default(self):
         assert SettlementConfig(layout="spiral").layout == "organic"
@@ -167,6 +169,78 @@ class TestGridLayout:
         g = sum(_edge_align_error(lot.polygon, u, v) for lot in grid.lots) / len(grid.lots)
         o = sum(_edge_align_error(lot.polygon, u, v) for lot in organic.lots) / len(organic.lots)
         assert g < o
+
+
+class TestPurpose:
+    def test_default_purpose_is_general_and_byte_identical(self):
+        base = SettlementSVGRenderer(scale=7).render(_town(7))
+        general = SettlementSVGRenderer(scale=7).render(_town(7, purpose="general"))
+        assert base == general
+
+    def test_general_has_no_landmark(self):
+        assert _town(7).landmark is None
+
+    def test_invalid_purpose_falls_back(self):
+        assert SettlementConfig(purpose="bogus").purpose == "general"
+
+    def test_purpose_sets_central_landmark(self):
+        town = _town(7, population=5000, purpose="fortress")
+        assert town.landmark is not None
+        assert town.landmark.kind == "citadel"
+        # The landmark is a real ward, and that ward carries the landmark kind.
+        ward = next(w for w in town.wards if w.id == town.landmark.ward)
+        assert ward.kind == "citadel"
+        assert ward.center == town.landmark.center
+
+    def test_purpose_kinds_map(self):
+        cases = {"trade": "market", "fortress": "citadel", "religious": "temple",
+                 "extraction": "mine", "transit": "plaza"}
+        for purpose, kind in cases.items():
+            town = _town(7, population=5000, purpose=purpose)
+            assert town.landmark is not None and town.landmark.kind == kind
+
+    def test_no_plain_market_when_purpose_relabels_centre(self):
+        # A fortress town's central ward is a citadel, not a market.
+        town = _town(7, population=5000, purpose="fortress")
+        assert all(w.kind != "market" for w in town.wards)
+
+    def test_purpose_biases_ward_mix(self):
+        from mapwright.settlement import _ward_kind_pool
+        base = _ward_kind_pool(0.5, "general").count("garrison")
+        forty = _ward_kind_pool(0.5, "fortress").count("garrison")
+        assert forty > base
+
+    def test_main_roads_focus_on_landmark(self):
+        town = _town(7, population=5000, purpose="fortress")
+        mains = [s for s in town.streets if s.kind == "main"]
+        assert mains
+        lc = town.landmark.center
+        # Every main road touches the landmark centre at one end.
+        assert all(lc in (s.path[0], s.path[-1]) for s in mains)
+
+    def test_landmark_round_trips(self):
+        town = _town(7, population=5000, purpose="religious")
+        loaded = Settlement.from_dict(town.to_dict())
+        assert loaded.purpose == "religious"
+        assert loaded.landmark is not None
+        assert loaded.landmark.to_dict() == town.landmark.to_dict()
+
+    def test_renderer_draws_landmark_only_when_present(self):
+        plain = SettlementSVGRenderer(scale=7).render(_town(7))
+        marked = SettlementSVGRenderer(scale=7).render(
+            _town(7, population=5000, purpose="fortress"))
+        assert plain.count("polygon") < marked.count("polygon")
+
+    def test_purpose_presets(self):
+        for name in ("fortress_town", "pilgrimage_site", "mining_camp"):
+            town = SettlementGenerator(SeededRNG(3)).generate(
+                90, 90, SettlementConfig.preset(name))
+            assert town.landmark is not None
+
+    def test_grid_plus_purpose(self):
+        town = _town(7, population=8000, layout="grid", purpose="fortress")
+        assert town.landmark is not None and town.landmark.kind == "citadel"
+        assert all(len(s.path) == 2 for s in town.streets)  # still a grid
 
 
 def _edge_align_error(poly, u, v):
@@ -437,16 +511,18 @@ class TestSerialisation:
         json.dumps(_town(coastal=True).to_dict())
 
     def test_schema_tag(self):
-        assert _town().to_dict()["schema"] == "mapwright/settlement@4"
+        assert _town().to_dict()["schema"] == "mapwright/settlement@5"
 
     def test_old_payload_without_new_keys_loads(self):
-        # Back-compat: an older payload missing lots/streets/gates/wall still loads.
+        # Back-compat: an older payload missing lots/streets/gates/wall/landmark/
+        # purpose still loads.
         d = _town(walled=True).to_dict()
-        for key in ("lots", "streets", "gates", "wall"):
+        for key in ("lots", "streets", "gates", "wall", "landmark", "purpose"):
             del d[key]
         loaded = Settlement.from_dict(d)
         assert loaded.lots == [] and loaded.streets == [] and loaded.gates == []
-        assert loaded.wall is None
+        assert loaded.wall is None and loaded.landmark is None
+        assert loaded.purpose == "general"
 
     def test_wall_round_trip(self):
         town = _town(walled=True, coastal=True, seed=5, population=9000)

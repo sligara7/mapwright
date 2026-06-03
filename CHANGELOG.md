@@ -8,6 +8,29 @@ All notable changes to mapwright are documented here. The format follows
 `tests/test_api_contract.py`). While the version is `0.x`, minor versions may
 make breaking changes; these will always be noted here.
 
+## [0.22.0] — 2026-06-02
+
+### Added
+- **Settlement `purpose` + landmarks — what a town exists for.** A new
+  `SettlementConfig.purpose` field (`"general"` default, or `"trade"`,
+  `"fortress"`, `"religious"`, `"harbor"`, `"extraction"`, `"transit"`). Anything
+  but `"general"`:
+  - promotes the central ward to a purpose-specific **landmark** kind
+    (fortress→`citadel`, religious→`temple`, trade→`market`, harbor→`docks`,
+    extraction→`mine`, transit→`plaza`), recorded on the new
+    `Settlement.landmark` field (a new public `Landmark` type);
+  - focuses the **main roads** on that landmark (they radiate from it to the
+    gates);
+  - **biases the ward-kind mix** toward the purpose (e.g. fortress → more
+    garrison wards).
+  - The renderer draws a star glyph over the landmark ward.
+  - New presets **`fortress_town`**, **`pilgrimage_site`**, **`mining_camp`**;
+    gallery `fortress-town` showcase.
+  - `"general"` output is **byte-identical** to before (no landmark, unchanged
+    ward bag and roads). New `Landmark` public type; `Settlement` serialisation
+    bumps to `mapwright/settlement@5` (back-compatible — older payloads load with
+    no landmark and `purpose="general"`).
+
 ## [0.21.0] — 2026-06-02
 
 ### Added

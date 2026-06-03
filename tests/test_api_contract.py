@@ -55,6 +55,7 @@ EXPECTED_PUBLIC = {
     "Lot",
     "Street",
     "Wall",
+    "Landmark",
     "SETTLEMENT_PRESETS",
 }
 
@@ -120,6 +121,7 @@ class TestSerialisationContract:
             mapwright.Lot,
             mapwright.Street,
             mapwright.Wall,
+            mapwright.Landmark,
             mapwright.SettlementConfig,
         ):
             assert hasattr(cls, "to_dict") and callable(cls.to_dict)

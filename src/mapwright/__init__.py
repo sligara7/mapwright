@@ -38,6 +38,7 @@ from .regions import Region, RegionGenerator
 from .rng import SeededRNG
 from .roads import Road, RegionalRoadGenerator
 from .settlement import (
+    Landmark,
     Lot,
     Settlement,
     SettlementConfig,
@@ -60,7 +61,7 @@ from .terrain import (
     compute_cell_polygons,
 )
 
-__version__ = "0.21.0"
+__version__ = "0.22.0"
 
 __all__ = [
     "SeededRNG",
@@ -102,5 +103,6 @@ __all__ = [
     "Lot",
     "Street",
     "Wall",
+    "Landmark",
     "SETTLEMENT_PRESETS",
 ]

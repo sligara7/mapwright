@@ -215,6 +215,7 @@ def main() -> None:
     emit("shantytown", render_settlement("shantytown", seed=5))
     emit("metropolis", render_settlement("metropolis", seed=5))
     emit("grid-city", render_settlement("grid_city", seed=7))
+    emit("fortress-town", render_settlement("fortress_town", seed=3))
     emit("roads", render_roads(seed=7))
     emit("regions", render_regions(seed=4))
     emit("template-isthmus", render_template("isthmus", 0.5, seed=5))
