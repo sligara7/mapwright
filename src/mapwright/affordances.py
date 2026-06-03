@@ -63,17 +63,24 @@ def environment_affordances(
     de-duplicated tuple, biome-base tags first then climate-driven additions,
     each in a stable order so the result is reproducible.
     """
-    tags: list[str] = list(_BIOME_BASE_AFFORDANCES.get(biome, ()))
+    base = _BIOME_BASE_AFFORDANCES.get(biome, ())
+    tags: list[str] = list(base)
+    # A freshwater biome (river/lake) affords drinking water, so heat/aridity must
+    # not also call water "scarce" — that's contradictory. An ocean keeps
+    # scarce_water on purpose: plenty of water at sea, none of it drinkable.
+    has_fresh_water = "water_source" in base
 
     extra: list[str] = []
-    if moisture <= _ARID:
+    if moisture <= _ARID and not has_fresh_water:
         extra.append("scarce_water")
     if moisture >= _HUMID:
         # standing water + warmth is what actually breeds the biting insects /
         # waterborne illness; pair with heat below for the full jungle effect.
         extra.append("disease_vector")
     if temperature >= _HOT:
-        extra.extend(("extreme_heat", "scarce_water"))
+        extra.append("extreme_heat")
+        if not has_fresh_water:
+            extra.append("scarce_water")
     if temperature <= _COLD:
         extra.append("extreme_cold")
 
@@ -97,6 +104,33 @@ class CellSummary:
     water_fraction: float    # fraction of cells that are ocean or lake, 0..1
     cell_count: int
     affordances: tuple[str, ...]
+
+    def to_dict(self) -> dict:
+        return {
+            "dominant_biome": int(self.dominant_biome),
+            "temperature": self.temperature,
+            "moisture": self.moisture,
+            "mean_height": self.mean_height,
+            "has_river": self.has_river,
+            "has_lake": self.has_lake,
+            "water_fraction": self.water_fraction,
+            "cell_count": self.cell_count,
+            "affordances": list(self.affordances),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "CellSummary":
+        return cls(
+            dominant_biome=Biome(int(data["dominant_biome"])),
+            temperature=float(data["temperature"]),
+            moisture=float(data["moisture"]),
+            mean_height=float(data["mean_height"]),
+            has_river=bool(data["has_river"]),
+            has_lake=bool(data["has_lake"]),
+            water_fraction=float(data["water_fraction"]),
+            cell_count=int(data["cell_count"]),
+            affordances=tuple(data["affordances"]),
+        )
 
 
 def summarize_cells(cells: Iterable[TerrainCell]) -> CellSummary:

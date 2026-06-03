@@ -121,3 +121,38 @@ def test_summarize_over_a_real_generated_world():
     assert s.affordances  # land always affords *something*
     # reproducible
     assert summarize_cells(land).affordances == s.affordances
+
+
+# -- no contradictory water tags --------------------------------------------
+
+@pytest.mark.parametrize("biome", [Biome.LAKE, Biome.RIVER])
+def test_freshwater_biomes_never_scarce_water(biome):
+    # A water_source place must not be tagged scarce_water under any climate.
+    for temp in (0.1, 0.5, 0.95):
+        for moist in (0.1, 0.5, 0.95):
+            tags = environment_affordances(biome, temperature=temp, moisture=moist)
+            assert "water_source" in tags
+            assert "scarce_water" not in tags, (biome, temp, moist)
+
+
+def test_ocean_keeps_scarce_water_when_hot():
+    # Saltwater: plenty of water, none drinkable — scarce_water is intended here.
+    tags = environment_affordances(Biome.OCEAN, temperature=0.95, moisture=0.95)
+    assert "scarce_water" in tags
+
+
+# -- serialisation (peer-class convention) ----------------------------------
+
+def test_cellsummary_roundtrips():
+    world = RegionalTerrainGenerator(SeededRNG(7)).generate(44, 30)
+    s = summarize_cells(world.cells)
+    back = CellSummary.from_dict(s.to_dict())
+    assert back == s
+    assert isinstance(back.dominant_biome, Biome)
+    assert isinstance(back.affordances, tuple)
+
+
+def test_cellsummary_to_dict_is_json_safe():
+    import json
+    s = summarize_cells([_cell(biome=Biome.FOREST, temperature=0.8, moisture=0.8)])
+    assert json.loads(json.dumps(s.to_dict())) == s.to_dict()
