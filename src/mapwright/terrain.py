@@ -363,18 +363,24 @@ class RegionalTerrainGenerator:
         xn = np.clip(centroids[:, 0] / max(1, width), 0.0, 1.0)
         yn = np.clip(centroids[:, 1] / max(1, height), 0.0, 1.0)
         if callable(hint):
-            return np.array([float(hint(float(x), float(y))) for x, y in zip(xn, yn)])
-        grid = np.asarray(hint, dtype=float)
-        if grid.ndim != 2 or grid.size == 0:
-            raise ValueError("elevation_hint grid must be a non-empty 2D array")
-        gh, gw = grid.shape
-        u, v = xn * (gw - 1), yn * (gh - 1)  # fractional grid coords
-        x0, y0 = np.floor(u).astype(int), np.floor(v).astype(int)
-        x1, y1 = np.minimum(x0 + 1, gw - 1), np.minimum(y0 + 1, gh - 1)
-        fx, fy = u - x0, v - y0
-        top = grid[y0, x0] * (1 - fx) + grid[y0, x1] * fx
-        bot = grid[y1, x0] * (1 - fx) + grid[y1, x1] * fx
-        return top * (1 - fy) + bot * fy
+            sampled = np.array([float(hint(float(x), float(y))) for x, y in zip(xn, yn)])
+        else:
+            grid = np.asarray(hint, dtype=float)
+            if grid.ndim != 2 or grid.size == 0:
+                raise ValueError("elevation_hint grid must be a non-empty 2D array")
+            gh, gw = grid.shape
+            u, v = xn * (gw - 1), yn * (gh - 1)  # fractional grid coords
+            x0, y0 = np.floor(u).astype(int), np.floor(v).astype(int)
+            x1, y1 = np.minimum(x0 + 1, gw - 1), np.minimum(y0 + 1, gh - 1)
+            fx, fy = u - x0, v - y0
+            top = grid[y0, x0] * (1 - fx) + grid[y0, x1] * fx
+            bot = grid[y1, x0] * (1 - fx) + grid[y1, x1] * fx
+            sampled = top * (1 - fy) + bot * fy
+        # A non-finite hint (NaN/inf from a buggy callable or grid) would silently
+        # poison every height; fail loudly instead.
+        if not np.all(np.isfinite(sampled)):
+            raise ValueError("elevation_hint produced non-finite values (NaN/inf)")
+        return sampled
 
     def _init_heightmap(
         self, cells: list[TerrainCell], width: int, height: int, cfg: WorldMapConfig,

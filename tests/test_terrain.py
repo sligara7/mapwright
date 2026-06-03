@@ -255,6 +255,15 @@ class TestElevationHint:
             with pytest.raises(ValueError):
                 _gen(1, 24, 18, elevation_hint=bad)
 
+    def test_non_finite_hint_raises(self):
+        import math
+
+        import pytest
+        with pytest.raises(ValueError):
+            _gen(1, 24, 18, elevation_hint=lambda x, y: float("nan"))
+        with pytest.raises(ValueError):
+            _gen(1, 24, 18, elevation_hint=[[0.0, math.inf], [0.0, 0.0]])
+
 
 class TestParameters:
     def test_higher_sea_level_means_more_water(self):
