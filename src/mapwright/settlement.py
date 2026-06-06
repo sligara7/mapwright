@@ -855,7 +855,8 @@ class SettlementGenerator:
                 wob = 1.0 + sum(a * math.sin((h + 1) * (ang + twist) + p)
                                 for h, (a, p) in enumerate(zip(amps, phases)))
                 r *= max(0.6, min(1.0, wob))
-            r = max(r, radius * 0.28)             # keep a minimum core size
+            if not hit_water:                     # keep a minimum core size, but
+                r = max(r, radius * 0.28)         # never push past the shoreline
             pts.append((ccx + dx * r, ccy + dy * r))
             water.append(hit_water)
         return pts, self._coast_edge(pts, water)

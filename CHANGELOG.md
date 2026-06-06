@@ -8,6 +8,24 @@ All notable changes to mapwright are documented here. The format follows
 `tests/test_api_contract.py`). While the version is `0.x`, minor versions may
 make breaking changes; these will always be noted here.
 
+## [0.23.1] — 2026-06-06
+
+### Fixed
+- **Atlas ocean decorations no longer silently vanish.** `AtlasRenderer` used a
+  symbol pick purely as an existence test (discarding the drawn symbol) and then
+  independently coin-flipped between `decoration.ship` and `decoration.creature`.
+  On an art pack that supplied only one of the two slots, roughly half the ocean
+  decorations were dropped because the coin flip selected the absent slot. The
+  renderer now decides the slot once and stamps it (a missing slot is a harmless
+  no-op), which also removes the wasted RNG draws that made output sensitive to
+  which decoration slots a pack happened to define.
+- **Terrain-shaped coastal towns no longer place their footprint in the water.**
+  The settlement footprint's minimum-core clamp ran on every ray, including rays
+  that had stopped just shy of water — pushing those vertices back out past the
+  shoreline (while still flagging them as water-bounded), so the derived coastline
+  chord could sit in open sea. The clamp now applies only to rays not stopped by
+  water; inland/cliff-hemmed towns keep their minimum core.
+
 ## [0.23.0] — 2026-06-05
 
 ### Added

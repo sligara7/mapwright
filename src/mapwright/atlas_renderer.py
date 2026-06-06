@@ -285,9 +285,8 @@ class AtlasRenderer:
         ocean = [c for c in terrain.cells if c.biome == Biome.OCEAN]
         rng.shuffle(ocean)
         for c in ocean[:3]:
-            if self.pack.pick("decoration.creature", rng) or self.pack.pick("decoration.ship", rng):
-                slot = "decoration.ship" if rng.random() < 0.5 else "decoration.creature"
-                self._stamp(img, slot, c.cx * s, c.cy * s, rng, width_override=3.0)
+            slot = "decoration.ship" if rng.random() < 0.5 else "decoration.creature"
+            self._stamp(img, slot, c.cx * s, c.cy * s, rng, width_override=3.0)
         self._stamp(img, "decoration.compass", W - s * 4.5, H - s * 3.5, rng, width_override=6.0)
         return img
 
