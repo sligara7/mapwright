@@ -171,4 +171,10 @@ PRESETS: dict[str, dict] = {
                  "mountain_density": 0.55, "polar_cold": 0.2},  # warm to the poles
     "islands": {"continents": 12, "sea_level": 0.62, "continent_spread": 0.85,
                 "mountain_density": 0.3},
+    # A whole planet: many distinct continents of varied size spread to the
+    # edges, ~⅓ land, polar ice caps, and islands/arcs in the oceans between.
+    # Best rendered on a WIDE canvas (e.g. generate(240, 130)) so the continents
+    # read as a world rather than one zoomed-in landmass.
+    "world": {"continents": 8, "sea_level": 0.64, "continent_spread": 0.95,
+              "mountain_density": 0.7, "polar_cold": 0.5},
 }
