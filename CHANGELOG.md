@@ -8,6 +8,23 @@ All notable changes to mapwright are documented here. The format follows
 `tests/test_api_contract.py`). While the version is `0.x`, minor versions may
 make breaking changes; these will always be noted here.
 
+## [0.24.0] — 2026-06-06
+
+### Added
+- **Type information (PEP 561).** Ships a `py.typed` marker, so downstream
+  projects' type checkers (mypy, pyright) now verify their use of mapwright's
+  public API against its annotations — signature drift is caught at *their*
+  build time, not just at runtime.
+
+### Changed
+- **The public contract is now pinned more tightly** (no API change). The
+  contract tests freeze, for every exported dataclass, the exact field *names
+  and order* (positional construction, attribute access, and `to_dict` keys all
+  depend on these), and freeze the `to_dict()` key schema for every serialisable
+  type. An internal refactor that renames/reorders/drops a public field or
+  changes a serialised key now fails CI loudly instead of silently breaking
+  consumers that persist JSON or read fields.
+
 ## [0.23.1] — 2026-06-06
 
 ### Fixed
