@@ -8,6 +8,37 @@ All notable changes to mapwright are documented here. The format follows
 `tests/test_api_contract.py`). While the version is `0.x`, minor versions may
 make breaking changes; these will always be noted here.
 
+## [0.23.0] — 2026-06-05
+
+### Added
+- **Terrain-shaped settlements — a town takes the shape of its ground.**
+  `SettlementGenerator.generate` accepts an optional `terrain=` field (a callable
+  over normalised canvas coords `(xn, yn) -> elevation`, negative = water, or a 2D
+  grid). The footprint is then grown out from the core, each ray stopping at water
+  or ground too high to build — so a coastal town hugs its shore, a town between
+  lakes grows fingers, and a town on open flats spreads round. The shoreline is
+  derived from the real terrain (no synthetic straight coast needed); docks/harbour
+  follow it.
+  - New public `world_terrain_field(terrain, region=None)` builds such a field from
+    a generated `RegionalTerrain`, mapping the town's canvas onto a world rectangle.
+  - New public `TerrainField` type alias. Gallery **`terrain-town`** showcase.
+  - `terrain=None` is **unchanged** from before.
+
+### Changed
+- **Continents are no longer roughly circular.** The single-continent heightmap no
+  longer frames the map with a radial distance-from-centre falloff (which forced a
+  disk). Instead it picks a per-world ocean-facing direction, offsets the landmass
+  toward the far (passive) margin, seeds it from two cratonic sub-plates, and frames
+  the sea with a **noise-warped, directional** term — so the coastline is ragged and
+  the continent sits off-centre, running off one edge like a real continental
+  margin. Multi-continent / template / hint worlds keep the prior radial frame and
+  are byte-identical (`archipelago`/`islands` unchanged).
+- **Organic town outlines are concave, not oval.** The procedural footprint drops
+  the convex hull in favour of a star-shaped polar curve with several harmonics
+  (arms + bays); wards are clipped back to it so the fill matches. Planned (`grid`)
+  towns stay convex by design. The seeded RNG stream for settlements changed, so
+  exact organic-town geometry differs from 0.22.0.
+
 ## [0.22.0] — 2026-06-02
 
 ### Added

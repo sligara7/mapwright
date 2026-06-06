@@ -387,9 +387,7 @@ class RegionalTerrainGenerator:
         template: str = "", elevation_hint: ElevationHint | None = None,
     ) -> None:
         cx, cy = width / 2, height / 2
-        diag = math.hypot(width, height)
         centroids = np.array([[c.cx, c.cy] for c in cells])
-        d_true = np.sqrt((centroids[:, 0] - cx) ** 2 + (centroids[:, 1] - cy) ** 2) / (diag / 2)
         n_cells = len(cells)
 
         # Hint mode (caller art-directs the macro shape) — highest precedence. The
@@ -403,14 +401,14 @@ class RegionalTerrainGenerator:
             h = (h - hmin) / max(1e-9, hmax - hmin)
             coast = (self._fbm(centroids, width, height, octaves=5, base_res=3) - 0.5) * 2.0
             raw = (h - 0.5) * 2.0 + 0.25 * coast
-            self._finalize_heights(cells, raw, d_true, cfg)
+            self._finalize_heights(cells, raw, self._radial_frame(centroids, width, height, cfg), cfg)
             return
 
         # Template mode (Azgaar-style composed ops) — an alternative to the default
         # tectonic auto-generation, for controllable continent archetypes.
         if template in TERRAIN_TEMPLATES:
             raw = self._template_raw(cells, centroids, width, height, template)
-            self._finalize_heights(cells, raw, d_true, cfg)
+            self._finalize_heights(cells, raw, self._radial_frame(centroids, width, height, cfg), cfg)
             return
 
         # --- Tectonic plates ------------------------------------------------
@@ -429,10 +427,22 @@ class RegionalTerrainGenerator:
         cont_seeds: list[tuple[float, float]] = []
         ocean_seeds: list[tuple[float, float]] = []
         if n == 1:
-            cont_seeds.append((cx + self._rng.fuzzy(0, width * 0.12),
-                               cy + self._rng.fuzzy(0, height * 0.12)))
-            ocean_seeds = [(self._rng.uniform(0, width), self._rng.uniform(0, height))
-                           for _ in range(4)]
+            # A real continent is a fragment shoved against its ocean, not a disk
+            # centred on the map. Pick the world's ocean-facing direction, offset the
+            # landmass toward the *far* (passive, rifted) side away from that ocean,
+            # and seed it with TWO cratonic sub-plates so the mass is an irregular
+            # union (with a collision range where they meet) — not one Voronoi blob.
+            self._ocean_dir = self._rng.uniform(0.0, 2.0 * math.pi)
+            ox, oy = math.cos(self._ocean_dir), math.sin(self._ocean_dir)
+            fx, fy = cx - ox * width * 0.20, cy - oy * height * 0.20
+            cont_seeds.append((fx + self._rng.fuzzy(0, width * 0.10),
+                               fy + self._rng.fuzzy(0, height * 0.10)))
+            cont_seeds.append((fx + self._rng.fuzzy(0, width * 0.18),
+                               fy + self._rng.fuzzy(0, height * 0.18)))
+            # One big oceanic plate on the facing side + scattered minor ones.
+            ocean_seeds.append((cx + ox * width * 0.42, cy + oy * height * 0.42))
+            ocean_seeds += [(self._rng.uniform(0, width), self._rng.uniform(0, height))
+                            for _ in range(4)]
         else:
             ring = cfg.continent_spread * min(width, height) * 0.42
 
@@ -503,16 +513,74 @@ class RegionalTerrainGenerator:
         # bays/capes; a radial edge term frames the map in sea (works *with* the
         # percentile sea level below — it just pushes border cells to the low end).
         coast = (self._fbm(centroids, width, height, octaves=5, base_res=3) - 0.5) * 2.0
-        raw = base + uplift + 0.45 * coast
-        self._finalize_heights(cells, raw, d_true, cfg)
+        # A single continent gets the directional sea-frame (it faces one ocean) and
+        # a touch more coastline noise for a raggeder shore. Multi-continent worlds
+        # keep the symmetric radial frame, which already scatters them into islands;
+        # a directional bias there would drown one whole flank of the ring.
+        if n == 1:
+            raw = base + uplift + 0.55 * coast
+            frame = self._sea_frame(centroids, width, height, cfg, dir_amp=1.0)
+        else:
+            raw = base + uplift + 0.45 * coast
+            frame = self._radial_frame(centroids, width, height, cfg)
+        self._finalize_heights(cells, raw, frame, cfg)
 
-    def _finalize_heights(self, cells, raw, d_true, cfg: WorldMapConfig) -> None:
+    def _radial_frame(self, centroids, width: int, height: int,
+                      cfg: WorldMapConfig) -> np.ndarray:
+        """Legacy symmetric sea-frame: distance from map centre, drowning the rim.
+
+        Used for multi-continent worlds (it scatters a ring of plates into islands)
+        and for template/hint modes (which place their own land and want a neutral,
+        undirected frame). Single continents use the directional :meth:`_sea_frame`
+        instead, since a radial disk is what made one continent come out circular.
+        """
+        cx, cy = width / 2, height / 2
+        diag = math.hypot(width, height)
+        d_true = np.sqrt((centroids[:, 0] - cx) ** 2
+                         + (centroids[:, 1] - cy) ** 2) / (diag / 2)
+        return np.clip((d_true - 0.58) / 0.42, 0, 1) * 1.8 * cfg.edge_falloff
+
+    def _sea_frame(self, centroids, width: int, height: int,
+                   cfg: WorldMapConfig, dir_amp: float) -> np.ndarray:
+        """The amount each cell is pushed toward sea to *frame the map in water*.
+
+        Replaces the old radial disk (``edge_falloff`` × distance-from-centre),
+        which forced continents into circles. Instead the frame is:
+
+        * **box-distance to the nearest border**, so it follows the rectangular
+          map, not a circle;
+        * **noise-warped**, so the resulting coastline is wavy (bays/capes) rather
+          than a clean edge; and
+        * **directional** (``dir_amp``): the world's ocean-facing side is drowned
+          hard while the opposite (passive) side is barely framed, so land sits
+          off-centre and can run to one edge — like a real coastline.
+
+        Returns a non-negative array (0 = untouched) scaled by ``edge_falloff``.
+        """
+        if cfg.edge_falloff <= 0:
+            return np.zeros(len(centroids))
+        cx, cy = width / 2, height / 2
+        x, y = centroids[:, 0], centroids[:, 1]
+        # 0 at any border → ~1 toward the middle (box distance, not radial).
+        edge = np.minimum(np.minimum(x, width - x) / (width / 2),
+                          np.minimum(y, height - y) / (height / 2))
+        warp = self._fbm(centroids, width, height, octaves=4, base_res=2) - 0.5
+        edge_w = edge + 0.45 * warp
+        band = np.clip((0.6 - edge_w) / 0.42, 0.0, 1.0)  # 1 at border → 0 inland
+        # Directional bias: +1 on the ocean-facing flank, -1 on the far flank.
+        ox, oy = math.cos(self._ocean_dir), math.sin(self._ocean_dir)
+        proj = ((x - cx) / (width / 2)) * ox + ((y - cy) / (height / 2)) * oy
+        side = np.clip(0.5 + 0.5 * proj, 0.0, 1.0)       # 0 far → 1 ocean side
+        strength = (1.0 - dir_amp) + dir_amp * (0.3 + 1.6 * side)
+        return band * strength * 1.5 * cfg.edge_falloff
+
+    def _finalize_heights(self, cells, raw, frame, cfg: WorldMapConfig) -> None:
         """Frame the map in sea and set per-cell heights via a **percentile** sea
         level (the fwmg idea): exactly ``sea_level`` of cells become water, so a
         higher sea level floods more by construction; land scales into
         (sea_level, 1] and sea into [0, sea_level). Shared by both heightmap modes.
         """
-        raw = raw - np.clip((d_true - 0.58) / 0.42, 0, 1) * 1.8 * cfg.edge_falloff
+        raw = raw - frame
         sea = cfg.sea_level
         thr = float(np.quantile(raw, sea))
         rmin, rmax = float(raw.min()), float(raw.max())

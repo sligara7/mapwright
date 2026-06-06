@@ -17,7 +17,9 @@ no code copied; see NOTICE. Fully seed-deterministic.
 from __future__ import annotations
 
 import math
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from typing import Union
 
 from . import _graph, _serde
 from ._geometry import (
@@ -33,6 +35,42 @@ from ._geometry import (
 )
 from .names import NameGenerator
 from .rng import SeededRNG
+
+# A terrain field for shaping a settlement: either a callable over **normalised**
+# canvas coordinates ``(xn, yn) in [0,1]`` returning an elevation (negative ⇒
+# water/unbuildable), or a 2D grid (rows north→south, cols west→east) sampled the
+# same way. See :func:`world_terrain_field` to build one from a generated world.
+TerrainField = Union[Callable[[float, float], float], Sequence[Sequence[float]]]
+
+
+def world_terrain_field(
+    terrain, region: tuple[float, float, float, float] | None = None
+) -> Callable[[float, float], float]:
+    """Build a settlement ``terrain`` field from a generated world.
+
+    Returns a callable over normalised canvas coords that reports the world's
+    elevation **relative to sea level** (so ocean/lakes come out negative and read
+    as unbuildable water) at the corresponding world location. ``region = (x0, y0,
+    w, h)`` is the world rectangle the town occupies (defaults to the whole map);
+    shrink it to seat a town on a chosen stretch of coast or valley.
+
+    Duck-typed: any object exposing ``cell_of`` (2D int grid of cell ids),
+    ``cells`` (each with ``.height``), ``sea_level``, ``width`` and ``height``
+    works — i.e. a :class:`~mapwright.terrain.RegionalTerrain`."""
+    cell_of = terrain.cell_of
+    cells = terrain.cells
+    sea = float(terrain.sea_level)
+    ww, wh = int(terrain.width), int(terrain.height)
+    x0, y0, rw, rh = region if region is not None else (0.0, 0.0, ww, wh)
+
+    def field(xn: float, yn: float) -> float:
+        wx = x0 + min(max(xn, 0.0), 1.0) * rw
+        wy = y0 + min(max(yn, 0.0), 1.0) * rh
+        ix = min(max(int(wx), 0), ww - 1)
+        iy = min(max(int(wy), 0), wh - 1)
+        return float(cells[int(cell_of[iy][ix])].height) - sea
+
+    return field
 
 
 def _clamp(value: float, lo: float, hi: float) -> float:
@@ -569,21 +607,47 @@ class SettlementGenerator:
         config: SettlementConfig | None = None,
         *,
         culture: str = "generic",
+        terrain: "TerrainField | None" = None,
     ) -> Settlement:
         """Generate a town. ``config`` shapes it (population, walls, coast, outline);
-        ``culture`` selects the namebase for the town and ward names."""
+        ``culture`` selects the namebase for the town and ward names.
+
+        ``terrain`` (optional) makes the town **take the shape of its ground**: a
+        callable ``(x, y) -> elevation`` over canvas coordinates (negative =
+        water/unbuildable), or a 2D grid sampled the same way. When given, the
+        footprint is grown out from the core until it meets water or ground too high
+        to build — so a coastal town hugs its shore, a town between lakes grows
+        fingers, and a town on open flats spreads round. Without it, the outline is
+        the procedural organic/grid shape (and ``config.coastal`` adds a synthetic
+        straight shore as before). See :func:`world_terrain_field` to derive one
+        from a generated :class:`~mapwright.terrain.RegionalTerrain`."""
         cfg = config or SettlementConfig()
         cx, cy = width / 2, height / 2
         radius = self._radius(cfg.population, width, height)
 
-        footprint = self._footprint(cx, cy, radius, cfg.irregularity)
+        # Organic towns get a concave, lobed outline; planned (grid) towns stay
+        # convex. The convex hull drives the internal Voronoi/relaxation math
+        # (which needs a convex bound); wards are then clipped back to the outline
+        # so the visible fill matches the concave silhouette.
         water_edge: tuple[Point, Point] | None = None
-        if cfg.coastal:
-            footprint, water_edge = self._apply_coast(footprint, cx, cy, radius)
+        coastal = cfg.coastal
+        sample = self._make_sampler(terrain, width, height) if terrain is not None else None
+        if sample is not None:
+            footprint, water_edge = self._terrain_footprint(
+                cx, cy, radius, cfg, sample, width, height)
+            coastal = water_edge is not None
+        if sample is None or footprint is None:
+            footprint = self._footprint(cx, cy, radius, cfg.irregularity,
+                                        organic=cfg.layout != "grid")
+            if cfg.coastal:
+                footprint, water_edge = self._apply_coast(footprint, cx, cy, radius)
+                coastal = cfg.coastal
+        clip_hull = convex_hull(footprint)
 
-        seeds = self._ward_seeds(footprint, cfg.population)
-        polys = voronoi_cells(seeds, footprint)
-        wards, hub_id = self._build_wards(polys, cfg.coastal, water_edge, culture,
+        seeds = self._ward_seeds(footprint, clip_hull, cfg.population)
+        polys = [self._clip_to_outline(c, footprint)
+                 for c in voronoi_cells(seeds, clip_hull)]
+        wards, hub_id = self._build_wards(polys, coastal, water_edge, culture,
                                           _ward_kind_pool(cfg.wealth, cfg.purpose),
                                           cfg.purpose)
         # The hub (central ward) is what main roads focus on — a landmark when the
@@ -594,13 +658,16 @@ class SettlementGenerator:
             w = wards[hub_id]
             landmark = Landmark(ward=w.id, kind=w.kind, center=w.center, name=w.name)
         # A grid town aligns both its lots and its streets to the footprint's axes.
+        # Terrain-shaped towns follow the ground, so they are never a clean grid.
+        planned = cfg.layout == "grid" and sample is None
         grid_axes = None
-        if cfg.layout == "grid":
+        if planned:
             _, u, v = self._principal_axis(footprint)
             grid_axes = (u, v)
         lots = self._build_lots(wards, cfg, grid_axes)
-        streets, gates = self._build_streets(wards, footprint, cfg, water_edge, hub)
-        wall = self._build_wall(footprint, cfg.walled, cfg.coastal, water_edge, gates)
+        streets, gates = self._build_streets(wards, footprint, cfg, water_edge, hub,
+                                             planned, coastal)
+        wall = self._build_wall(footprint, cfg.walled, coastal, water_edge, gates)
 
         return Settlement(
             width=width,
@@ -615,7 +682,7 @@ class SettlementGenerator:
             landmark=landmark,
             purpose=cfg.purpose,
             walled=cfg.walled,
-            coastal=cfg.coastal,
+            coastal=coastal,
             water_edge=water_edge,
         )
 
@@ -628,33 +695,197 @@ class SettlementGenerator:
         fit = 0.40 * min(width, height)
         return min(fit, max(6.0, math.sqrt(population) * 0.45))
 
-    def _footprint(self, cx: float, cy: float, radius: float, irregularity: float) -> list[Point]:
-        """An organic, convex town outline — clearly non-circular: elongated along a
-        random axis, lopsided via low-frequency radial lobes, then convex-hulled so
-        wards still clip cleanly. ``radius`` is the long-axis half-extent.
+    def _footprint(self, cx: float, cy: float, radius: float, irregularity: float,
+                   organic: bool = True) -> list[Point]:
+        """A town outline as a **polar radius curve** ``r(θ)`` about the core.
 
-        (Low-frequency harmonics — not per-vertex jitter — are what survive the
-        convex hull as real lobes; independent jitter just hulls back to a circle.)
+        An organic town accretes around a centre and reaches out along roads and
+        valleys, so its edge is lobed and *concave* — arms with bays between them,
+        not a smooth oval. We sum several angular harmonics (1st = lopsided, 2nd =
+        bilobed, higher = ragged arms); because ``r(θ)`` stays strictly positive the
+        curve is always a simple, star-shaped polygon (every district visible from
+        the core) — so wards can still be clipped to it cleanly.
+
+        ``organic=False`` returns the convex hull instead: a *planned* (grid) town
+        is deliberately regular, so a tidy convex footprint is the honest shape.
+        ``radius`` is the long-axis half-extent.
         """
         theta = self._rng.uniform(0.0, 2.0 * math.pi)          # random orientation
-        aspect = 1.0 + (0.25 + 0.45 * irregularity) * self._rng.random()  # elongation
-        a1 = 0.16 * irregularity * self._rng.uniform(0.4, 1.0)  # lopsided (1st harmonic)
-        a2 = 0.10 * irregularity * self._rng.uniform(0.4, 1.0)  # oval-ish (2nd harmonic)
-        p1 = self._rng.uniform(0.0, 2.0 * math.pi)
-        p2 = self._rng.uniform(0.0, 2.0 * math.pi)
+        aspect = 1.0 + (0.30 + 0.55 * irregularity) * self._rng.random()  # elongation
         ct, st = math.cos(theta), math.sin(theta)
+        # Per-harmonic amplitude (× a random factor) and phase. Higher harmonics
+        # carry the arms/bays that make the outline concave; scale with irregularity.
+        base = (0.22, 0.20, 0.16, 0.12, 0.08)
+        amps = [b * irregularity * self._rng.uniform(0.45, 1.0) for b in base]
+        phases = [self._rng.uniform(0.0, 2.0 * math.pi) for _ in base]
 
-        k = 40
+        k = 64
         pts: list[Point] = []
         for i in range(k):
             ang = 2.0 * math.pi * i / k
-            rr = 1.0 + a1 * math.sin(ang + p1) + a2 * math.sin(2 * ang + p2)
+            rr = 1.0 + sum(a * math.sin((h + 1) * ang + p)
+                           for h, (a, p) in enumerate(zip(amps, phases)))
+            rr = max(0.42, min(1.30, rr))        # keep r>0 (simple curve) & on-canvas
             ux = rr * math.cos(ang)              # long axis (= radius)
             uy = rr * math.sin(ang) / aspect     # squash the short axis → ellipse
             x = radius * (ux * ct - uy * st)     # rotate into the random frame
             y = radius * (ux * st + uy * ct)
             pts.append((cx + x, cy + y))
-        return convex_hull(pts)
+        return pts if organic else convex_hull(pts)
+
+    @staticmethod
+    def _clip_to_outline(ward: list[Point], outline: list[Point]) -> list[Point]:
+        """Intersect a convex ``ward`` (a Voronoi cell over the convex hull) with the
+        concave ``outline``, so the ward fill never spills into the outline's bays.
+
+        Clips ``outline`` by each of the ward's edge half-planes (interior side).
+        Each step is a single half-plane cut, which is valid on the concave
+        ``outline`` subject — the result is ``outline ∩ ward``."""
+        if len(ward) < 3:
+            return []
+        wcx, wcy = polygon_centroid(ward)
+        poly = list(outline)
+        n = len(ward)
+        for i in range(n):
+            ax, ay = ward[i]
+            bx, by = ward[(i + 1) % n]
+            nx, ny = by - ay, ax - bx          # a normal to the edge
+            if (wcx - ax) * nx + (wcy - ay) * ny > 0:   # make it point *outward*
+                nx, ny = -nx, -ny
+            poly = clip_halfplane(poly, ax, ay, nx, ny)  # keep the interior side
+            if len(poly) < 3:
+                return []
+        return poly
+
+    # -- terrain-shaped footprint ----------------------------------------
+
+    @staticmethod
+    def _make_sampler(terrain: TerrainField, width: int, height: int,
+                      res: int = 56) -> Callable[[float, float], float]:
+        """Bake a terrain field into a fast bilinear ``sample(x, y) -> elevation``
+        over **canvas** coords (negative ⇒ water). A callable field is rasterised
+        once onto a ``res × res`` grid (so a costly world lookup runs a bounded
+        number of times); a passed 2D grid is used directly."""
+        if callable(terrain):
+            gw = gh = res
+            grid = [[float(terrain(c / (gw - 1), r / (gh - 1)))
+                     for c in range(gw)] for r in range(gh)]
+        else:
+            grid = [[float(v) for v in row] for row in terrain]
+            gh = len(grid)
+            gw = len(grid[0]) if gh else 0
+        if gh < 2 or gw < 2:
+            flat = grid[0][0] if (gh and gw) else 0.0
+            return lambda x, y: flat
+
+        def sample(x: float, y: float) -> float:
+            u = min(max(x / width, 0.0), 1.0) * (gw - 1)
+            v = min(max(y / height, 0.0), 1.0) * (gh - 1)
+            x0, y0 = int(u), int(v)
+            x1, y1 = min(x0 + 1, gw - 1), min(y0 + 1, gh - 1)
+            fx, fy = u - x0, v - y0
+            top = grid[y0][x0] * (1 - fx) + grid[y0][x1] * fx
+            bot = grid[y1][x0] * (1 - fx) + grid[y1][x1] * fx
+            return top * (1 - fy) + bot * fy
+
+        return sample
+
+    @staticmethod
+    def _nearest_land(cx: float, cy: float, radius: float,
+                      sample: Callable[[float, float], float]) -> Point | None:
+        """The core, nudged onto land if it fell in water — scan rings outward."""
+        if sample(cx, cy) >= 0.0:
+            return (cx, cy)
+        for ri in range(1, 21):
+            d = radius * ri / 20.0
+            for ai in range(12):
+                a = 2.0 * math.pi * ai / 12.0
+                x, y = cx + math.cos(a) * d, cy + math.sin(a) * d
+                if sample(x, y) >= 0.0:
+                    return (x, y)
+        return None
+
+    def _terrain_footprint(
+        self, cx: float, cy: float, radius: float, cfg: SettlementConfig,
+        sample: Callable[[float, float], float], width: int, height: int,
+    ) -> tuple[list[Point] | None, tuple[Point, Point] | None]:
+        """Grow a star-shaped outline from the core: each ray marches out until it
+        meets water, ground too high to build, or the canvas edge — so the town
+        takes the shape of its terrain (round on flats, coast-hugging by water,
+        fingered between lakes). Returns ``(footprint, water_edge)``; footprint is
+        ``None`` when the core has no land nearby (caller falls back to procedural).
+        """
+        core = self._nearest_land(cx, cy, radius, sample)
+        if core is None:
+            return None, None
+        ccx, ccy = core
+        core_e = sample(ccx, ccy)
+        # How far above the core the town will still climb before a ray stops — a
+        # flat town spreads freely; a valley town won't crawl up the ridge. Planned
+        # (regular) towns tolerate a touch more climb (terracing/earthworks).
+        ceil = core_e + 0.10 + 0.20 * (1.0 - cfg.irregularity)
+        irr = cfg.irregularity
+        amps = [b * irr * self._rng.uniform(0.4, 1.0) for b in (0.10, 0.08, 0.06)]
+        phases = [self._rng.uniform(0.0, 2.0 * math.pi) for _ in amps]
+        twist = self._rng.uniform(0.0, 2.0 * math.pi)
+
+        k = 72
+        step = max(0.6, radius / 26.0)
+        pts: list[Point] = []
+        water: list[bool] = []
+        for i in range(k):
+            ang = 2.0 * math.pi * i / k
+            dx, dy = math.cos(ang), math.sin(ang)
+            r, bound, hit_water = radius, False, False
+            d = step
+            while d <= radius:
+                x, y = ccx + dx * d, ccy + dy * d
+                if x < 0 or y < 0 or x > width or y > height:
+                    r, bound = max(step, d - step), True
+                    break
+                e = sample(x, y)
+                if e < 0.0:                       # water — stop just shy of it
+                    r, bound, hit_water = max(step, d - step), True, True
+                    break
+                if e > ceil:                      # too high/steep to build on
+                    r, bound = max(step, d - step), True
+                    break
+                d += step
+            if not bound:                         # free (inland) edge — ragged it up
+                wob = 1.0 + sum(a * math.sin((h + 1) * (ang + twist) + p)
+                                for h, (a, p) in enumerate(zip(amps, phases)))
+                r *= max(0.6, min(1.0, wob))
+            r = max(r, radius * 0.28)             # keep a minimum core size
+            pts.append((ccx + dx * r, ccy + dy * r))
+            water.append(hit_water)
+        return pts, self._coast_edge(pts, water)
+
+    @staticmethod
+    def _coast_edge(pts: list[Point],
+                    water: list[bool]) -> tuple[Point, Point] | None:
+        """The town's shoreline as a single chord: endpoints of the longest run of
+        consecutive water-bounded rays. ``None`` if the town meets no water (inland)
+        or is ringed by it (an islet has no one coast to open the wall along)."""
+        n = len(water)
+        if not any(water) or all(water):
+            return None
+        start0 = next(i for i in range(n) if not water[i])  # begin off the water
+        order = [(start0 + j) % n for j in range(n)]
+        best_len, best = 0, (0, 0)
+        j = 0
+        while j < n:
+            if water[order[j]]:
+                end = j
+                while end < n and water[order[end]]:
+                    end += 1
+                if end - j > best_len:
+                    best_len, best = end - j, (order[j], order[end - 1])
+                j = end
+            else:
+                j += 1
+        if best_len < 2:
+            return None
+        return (pts[best[0]], pts[best[1]])
 
     def _apply_coast(
         self, footprint: list[Point], cx: float, cy: float, radius: float
@@ -682,12 +913,16 @@ class SettlementGenerator:
     def _ward_count(population: int) -> int:
         return max(3, min(60, round(population / 180)))
 
-    def _ward_seeds(self, footprint: list[Point], population: int) -> list[Point]:
-        """Rejection-sample ward centres inside the footprint, then Lloyd-relax
-        them a couple of passes so the wards come out evenly sized."""
+    def _ward_seeds(self, outline: list[Point], clip_hull: list[Point],
+                    population: int) -> list[Point]:
+        """Rejection-sample ward centres inside the (possibly concave) ``outline``,
+        then Lloyd-relax them against the convex ``clip_hull`` so the wards come out
+        evenly sized. Relaxation uses the hull because :func:`voronoi_cells` needs a
+        convex bound; a centroid that drifts into a bay just yields a ward that
+        clips away to nothing later, which is harmless."""
         n = self._ward_count(population)
-        xs = [p[0] for p in footprint]
-        ys = [p[1] for p in footprint]
+        xs = [p[0] for p in outline]
+        ys = [p[1] for p in outline]
         x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
 
         seeds: list[Point] = []
@@ -696,11 +931,11 @@ class SettlementGenerator:
         while len(seeds) < n and attempts < cap:
             attempts += 1
             p = (self._rng.uniform(x0, x1), self._rng.uniform(y0, y1))
-            if point_in_polygon(p, footprint):
+            if point_in_polygon(p, outline):
                 seeds.append(p)
 
-        for _ in range(2):  # Lloyd relaxation, clipped to the footprint
-            cells = voronoi_cells(seeds, footprint)
+        for _ in range(2):  # Lloyd relaxation, clipped to the convex hull
+            cells = voronoi_cells(seeds, clip_hull)
             seeds = [polygon_centroid(c) if len(c) >= 3 else s for c, s in zip(cells, seeds)]
         return seeds
 
@@ -854,14 +1089,15 @@ class SettlementGenerator:
         cfg: SettlementConfig,
         water_edge: tuple[Point, Point] | None,
         hub: Point | None = None,
+        planned: bool = False,
+        coastal: bool = False,
     ) -> tuple[list[Street], list[Point]]:
-        """Build the street network. ``layout="grid"`` lays a geometric grid aligned
-        to the town's long axis; otherwise the classic organic network (MST + a few
-        loops over adjacent wards, plus main roads from each gate to the ``hub`` —
-        the central landmark/market)."""
-        if cfg.layout == "grid":
+        """Build the street network. A ``planned`` (grid) town lays a geometric grid
+        aligned to the town's long axis; otherwise the classic organic network (MST
+        + a few loops over adjacent wards, plus main roads from each gate to the
+        ``hub`` — the central landmark/market). ``coastal`` adds a harbour gate."""
+        if planned:
             return self._build_grid_streets(wards, footprint, cfg, water_edge)
-        coastal = cfg.coastal
         if len(wards) < 2:
             return [], []
         adj, mids = self._ward_adjacency(wards)

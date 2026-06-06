@@ -607,3 +607,94 @@ def _near_boundary(pt, poly, eps=1e-6):
         if (x - px) ** 2 + (y - py) ** 2 <= eps:
             return True
     return False
+
+
+def _aspect(footprint):
+    """Long/short extent ratio of a polygon's axis-aligned bounding box."""
+    xs = [p[0] for p in footprint]
+    ys = [p[1] for p in footprint]
+    w, h = max(xs) - min(xs), max(ys) - min(ys)
+    lo, hi = min(w, h), max(w, h)
+    return hi / max(1e-9, lo)
+
+
+class TestTerrainShapedFootprint:
+    """A ``terrain`` field carves the footprint: round on flats, cut by water."""
+
+    def _gen(self, field, seed=5, **cfg):
+        config = SettlementConfig(population=9000, **cfg)
+        return SettlementGenerator(SeededRNG(seed)).generate(90, 90, config, terrain=field)
+
+    def test_plain_is_round_and_inland(self):
+        # All land (positive everywhere) → no ray is bound by water → near-circular.
+        town = self._gen(lambda xn, yn: 0.3)
+        assert town.coastal is False
+        assert town.water_edge is None
+        assert _aspect(town.footprint) < 1.35  # roughly round
+
+    def test_coast_cuts_the_town(self):
+        # Sea in the south-east half → coastal, and the water carves away a large
+        # part of what would otherwise be a full disk on open ground. (A bbox aspect
+        # would miss this: the cut runs diagonally, so the box stays square.)
+        coast = lambda xn, yn: 0.5 - 1.5 * max(0.0, xn + yn - 0.75)  # noqa: E731
+        town = self._gen(coast)
+        plain = self._gen(lambda xn, yn: 0.3)
+        assert town.coastal is True
+        assert town.water_edge is not None
+        assert polygon_area(town.footprint) < 0.6 * polygon_area(plain.footprint)
+
+    def test_core_in_water_falls_back_to_procedural(self):
+        # Core sits in water with no land within reach → graceful procedural outline.
+        town = self._gen(lambda xn, yn: -1.0)
+        assert town.footprint and len(town.footprint) >= 3
+        assert town.coastal is False  # config.coastal default
+
+    def test_grid_input_field_is_accepted(self):
+        # A 2D grid (rows N→S) with water along the bottom rows.
+        grid = [[0.3] * 8 for _ in range(8)]
+        for x in range(8):
+            grid[7][x] = -0.5
+            grid[6][x] = -0.2
+        town = self._gen(grid)
+        assert town.coastal is True
+
+    def test_terrain_generation_is_deterministic(self):
+        coast = lambda xn, yn: 0.5 - 1.5 * max(0.0, xn + yn - 0.75)  # noqa: E731
+        a = self._gen(coast, seed=11)
+        b = self._gen(coast, seed=11)
+        assert a.footprint == b.footprint
+        assert a.water_edge == b.water_edge
+
+    def test_wards_stay_within_canvas(self):
+        coast = lambda xn, yn: 0.5 - 1.5 * max(0.0, xn + yn - 0.75)  # noqa: E731
+        town = self._gen(coast)
+        for w in town.wards:
+            for x, y in w.polygon:
+                assert -1.0 <= x <= 91.0 and -1.0 <= y <= 91.0
+
+
+class TestWorldTerrainField:
+    def test_field_from_world_seats_a_coastal_town(self):
+        from mapwright import (
+            RegionalTerrainGenerator,
+            WorldMapConfig,
+            world_terrain_field,
+        )
+
+        world = RegionalTerrainGenerator(SeededRNG(103)).generate(
+            64, 44, config=WorldMapConfig())
+
+        def near_water(c):
+            return any(world.cells[int(nb)].is_water for nb in c.neighbors)
+
+        site = sorted(
+            (c for c in world.cells if not c.is_water and near_water(c)),
+            key=lambda c: abs(c.cx - 40) + abs(c.cy - 22),
+        )[0]
+        region = (site.cx - 8, site.cy - 8, 16, 16)
+        field = world_terrain_field(world, region)
+        # On-land core, water somewhere in reach → a real coastal town.
+        town = SettlementGenerator(SeededRNG(5)).generate(
+            90, 90, SettlementConfig(population=9000), terrain=field)
+        assert town.coastal is True
+        assert len(town.wards) > 5

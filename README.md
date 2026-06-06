@@ -77,6 +77,10 @@ produced by [`examples/gallery.py`](examples/gallery.py):
 <td align="center" colspan="2"><sub>A <code>purpose</code> seeds a central <b>landmark</b> (★) the main roads focus on — citadel, temple, mine, … — and biases the ward mix toward what the town is for.</sub></td>
 </tr>
 <tr>
+<td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/terrain-town.png" alt="a coastal town whose outline is carved by the world's shoreline"><br><sub><code>terrain=…</code> (terrain-shaped)</sub></td>
+<td colspan="2" align="left"><sub>Pass a <code>terrain</code> field and the town <b>takes the shape of its ground</b> — grown out from the core until it meets water or ground too high to build. A coast hugs its shore, land between lakes grows fingers, open flats spread round. <code>world_terrain_field(world, region)</code> derives the field from a generated map, so a town seated on a real coastline follows that coastline.</sub></td>
+</tr>
+<tr>
 <td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/roads.png" alt="settlements linked by terrain-routed roads"><br><sub><code>RegionalRoadGenerator</code></sub></td>
 <td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/regions.png" alt="land partitioned into named territories"><br><sub><code>RegionGenerator</code></sub></td>
 <td align="center"><img width="240" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/template-isthmus.png" alt="isthmus heightmap template"><br><sub><code>template="isthmus"</code></sub></td>
@@ -200,6 +204,13 @@ town    = SettlementGenerator(SeededRNG(7)).generate(90, 90)
 port    = SettlementGenerator(SeededRNG(5)).generate(90, 90, SettlementConfig.preset("port"))
 citadel = SettlementGenerator(SeededRNG(3)).generate(90, 90, SettlementConfig.preset("citadel"))
 open("town.svg", "w").write(SettlementSVGRenderer().render(town))
+
+# Let the town take the shape of real terrain: seat it on a stretch of a world.
+from mapwright import RegionalTerrainGenerator, world_terrain_field
+
+world = RegionalTerrainGenerator(SeededRNG(103)).generate(64, 44)
+field = world_terrain_field(world, region=(43, 14, 16, 16))  # a 16×16 world patch
+coastal_town = SettlementGenerator(SeededRNG(5)).generate(90, 90, terrain=field)
 ```
 
 Settlement presets: `hamlet`, `village`, `town`, `city`, `port`, `citadel`,
@@ -228,7 +239,7 @@ and biases its ward mix toward what it's for.
 | `RegionGenerator` | Partitions land into named factions/territories: spread capitals seed a flood fill over the land graph (sea divides them); each `Region` is Markov-named. |
 | `DungeonGenerator` | BSP-partitioned rooms + minimum-spanning-tree corridors → rooms, corridor cells, and a walkable grid (with `Dungeon.ascii()`). |
 | `DungeonSVGRenderer` | Renders a `Dungeon` to SVG: walls, carved floor, room outlines, optional tile grid and per-room labels. Takes a `theme=`. |
-| `SettlementGenerator` | Self-contained town layout: an organic footprint divided into named Voronoi **wards** (market, docks, …), each subdivided into building **lots**, a **street** network (`layout="organic"` → MST over ward adjacency + gate-to-hub roads; `layout="grid"` → a geometric street grid + grid-aligned lots), an optional defensive **wall** (towers + gate gaps, opened at the harbour when coastal), an optional **`purpose`** that places a central **landmark** (citadel/temple/mine/…) the main roads focus on, and optional coastline. |
+| `SettlementGenerator` | Town layout: an organic (concave, lobed) footprint divided into named Voronoi **wards** (market, docks, …), each subdivided into building **lots**, a **street** network (`layout="organic"` → MST over ward adjacency + gate-to-hub roads; `layout="grid"` → a geometric street grid + grid-aligned lots), an optional defensive **wall** (towers + gate gaps, opened at the harbour when coastal), an optional **`purpose`** that places a central **landmark** (citadel/temple/mine/…) the main roads focus on, and optional coastline. Pass an optional **`terrain`** field (or `world_terrain_field(world, region)`) to make the footprint **take the shape of its ground** — hugging shores, fingering between lakes, spreading round on flats. |
 | `SettlementSVGRenderer` | Renders a `Settlement` to SVG: sea, footprint, kind-coloured wards, building lots, streets, wall with towers/gatehouses, labels. Takes a `theme=`. |
 
 Everything is neutral: `RegionalTerrainGenerator` returns a `TerrainResult` of `TerrainCell`s

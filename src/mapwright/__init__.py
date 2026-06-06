@@ -44,9 +44,11 @@ from .settlement import (
     SettlementConfig,
     SettlementGenerator,
     Street,
+    TerrainField,
     Wall,
     Ward,
     SETTLEMENT_PRESETS,
+    world_terrain_field,
 )
 from .settlement_renderer import SettlementSVGRenderer
 from .svg_renderer import Marker, RegionalSVGRenderer
@@ -61,7 +63,7 @@ from .terrain import (
     compute_cell_polygons,
 )
 
-__version__ = "0.22.0"
+__version__ = "0.23.0"
 
 __all__ = [
     "SeededRNG",
@@ -104,5 +106,7 @@ __all__ = [
     "Street",
     "Wall",
     "Landmark",
+    "TerrainField",
+    "world_terrain_field",
     "SETTLEMENT_PRESETS",
 ]

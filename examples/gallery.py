@@ -113,6 +113,28 @@ def render_settlement(preset: str | None, seed: int, theme: str = "parchment") -
     return SettlementSVGRenderer(scale=TOWN_SCALE, theme=theme).render(town)
 
 
+def render_terrain_town(seed: int = 5) -> str:
+    """A town whose footprint is carved by real terrain: seat it on a coastal
+    stretch of a generated world and let the shore shape it (vs the procedural
+    outline above)."""
+    from mapwright import world_terrain_field
+
+    world = RegionalTerrainGenerator(SeededRNG(103)).generate(MAP_W, MAP_H)
+
+    def near_water(c):
+        return any(world.cells[int(nb)].is_water for nb in c.neighbors)
+
+    site = sorted(
+        (c for c in world.cells if not c.is_water and near_water(c)),
+        key=lambda c: abs(c.cx - 40) + abs(c.cy - 22),
+    )[0]
+    field = world_terrain_field(world, (site.cx - 8, site.cy - 8, 16, 16))
+    cfg = SettlementConfig(population=9000)
+    town = SettlementGenerator(SeededRNG(seed)).generate(
+        TOWN_W, TOWN_H, cfg, terrain=field)
+    return SettlementSVGRenderer(scale=TOWN_SCALE).render(town)
+
+
 def render_roads(seed: int = 7) -> str:
     """A continent with a handful of named settlements linked by trade routes."""
     rng = SeededRNG(seed)
@@ -216,6 +238,7 @@ def main() -> None:
     emit("metropolis", render_settlement("metropolis", seed=5))
     emit("grid-city", render_settlement("grid_city", seed=7))
     emit("fortress-town", render_settlement("fortress_town", seed=3))
+    emit("terrain-town", render_terrain_town(seed=5))
     emit("roads", render_roads(seed=7))
     emit("regions", render_regions(seed=4))
     emit("template-isthmus", render_template("isthmus", 0.5, seed=5))

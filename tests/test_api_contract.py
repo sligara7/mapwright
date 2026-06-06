@@ -56,6 +56,8 @@ EXPECTED_PUBLIC = {
     "Street",
     "Wall",
     "Landmark",
+    "TerrainField",
+    "world_terrain_field",
     "SETTLEMENT_PRESETS",
 }
 
