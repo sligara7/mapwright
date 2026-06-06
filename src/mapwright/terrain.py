@@ -452,55 +452,85 @@ class RegionalTerrainGenerator:
             # widens the band the centres may occupy.
             self._ocean_dir = self._rng.uniform(0.0, 2.0 * math.pi)
             spread = cfg.continent_spread
-            margin_x = width * (0.26 - 0.18 * spread)
-            margin_y = height * (0.26 - 0.18 * spread)
+            margin_x = width * (0.24 - 0.16 * spread)
+            margin_y = height * (0.24 - 0.16 * spread)
             core_r = 0.34 * math.sqrt(width * height / max(n, 1))  # nominal continent radius
-            min_sep = core_r * (1.8 + 0.6 * spread)               # centres kept well apart
-            # Poisson-disk-ish rejection so continent centres start well separated.
+
+            # Best-candidate (Mitchell) sampling: each centre is the farthest of a
+            # handful of random tries from the centres placed so far. Always yields n
+            # centres AND maximises spacing, so continents don't graze each other the
+            # way plain rejection-with-random-fallback let them.
             centres: list[tuple[float, float]] = []
-            attempts = 0
-            while len(centres) < n and attempts < n * 80:
-                attempts += 1
-                px = self._rng.uniform(margin_x, width - margin_x)
-                py = self._rng.uniform(margin_y, height - margin_y)
-                if all((px - sx) ** 2 + (py - sy) ** 2 >= min_sep ** 2
-                       for sx, sy in centres):
-                    centres.append((px, py))
-            while len(centres) < n:  # tight packing fell short → fill loosely
-                centres.append((self._rng.uniform(margin_x, width - margin_x),
-                                self._rng.uniform(margin_y, height - margin_y)))
-            # Build each continent from a cluster of cratons; record a radius per
-            # craton so the swell base (below) sums them into one irregular landmass.
+            for _ in range(n):
+                best: tuple[float, float] | None = None
+                best_d = -1.0
+                for _try in range(64):
+                    px = self._rng.uniform(margin_x, width - margin_x)
+                    py = self._rng.uniform(margin_y, height - margin_y)
+                    if not centres:
+                        best = (px, py)
+                        break
+                    d = min((px - sx) ** 2 + (py - sy) ** 2 for sx, sy in centres)
+                    if d > best_d:
+                        best_d, best = d, (px, py)
+                centres.append(best)  # type: ignore[arg-type]
+
+            # Varied sizing, space-aware: a skewed draw (u**1.8) makes most continents
+            # modest with the occasional giant, but each is then CAPPED by its distance
+            # to the nearest other centre — so crowded continents shrink and stay
+            # separated while isolated ones grow large. This both prevents fusing into
+            # one mass and widens the size spread for free. Bigger continents get more
+            # cratons (so they're also more irregular).
             cont_radii: list[float] = []
-            for px, py in centres:
-                csize = core_r * self._rng.uniform(0.75, 1.25)    # non-uniform continents
-                for _ in range(self._rng.randint(2, 3)):
-                    cont_seeds.append((px + self._rng.fuzzy(0, csize * 0.55),
-                                       py + self._rng.fuzzy(0, csize * 0.55)))
-                    cont_radii.append(csize * self._rng.uniform(0.55, 0.85))
-            # Populate the oceans so the world isn't just continents in a void. Both
-            # kinds are small swells folded into the same continental-swell field, so
-            # they self-gate (relief is allowed where the island is) without bridging
-            # continents:
-            #   • scattered lone islands / small groups, and
-            #   • a few volcanic ISLAND CHAINS — short lines of shrinking seamounts
-            #     (a hotspot track, Hawaii-style) across open water.
-            for _ in range(4 * n + 6):                            # scattered islets
-                cont_seeds.append((self._rng.uniform(0, width),
-                                   self._rng.uniform(0, height)))
-                cont_radii.append(core_r * self._rng.uniform(0.10, 0.26))
-            for _ in range(max(2, n // 2)):                       # island chains/arcs
-                x0, y0 = self._rng.uniform(0, width), self._rng.uniform(0, height)
+            for idx, (px, py) in enumerate(centres):
+                nn = min((math.hypot(px - sx, py - sy)
+                          for k, (sx, sy) in enumerate(centres) if k != idx),
+                         default=core_r * 3.0)
+                u = self._rng.random()
+                csize = min(core_r * (0.50 + 1.05 * u ** 1.8), 0.42 * nn)
+                ncr = 2 + int(u > 0.45) + int(u > 0.8)           # 2..4 cratons, big → more
+                for _ in range(ncr):
+                    cont_seeds.append((px + self._rng.fuzzy(0, csize * 0.40),
+                                       py + self._rng.fuzzy(0, csize * 0.40)))
+                    cont_radii.append(csize * self._rng.uniform(0.50, 0.70))
+
+            # Keep ocean features clear of the continents so they read as open-water
+            # islands and can't bridge two continents into one mass.
+            clear2 = (core_r * 0.95) ** 2
+
+            def _open_ocean(x: float, y: float) -> bool:
+                return all((x - sx) ** 2 + (y - sy) ** 2 >= clear2 for sx, sy in centres)
+
+            # Populate the oceans so the world isn't continents in a void — all small
+            # swells folded into the same field, so they self-gate (relief only where
+            # the island sits):
+            #   • island GROUPS — little archipelagos (a few isles clustered), and
+            #   • volcanic ARCS — curved, tapering hotspot tracks (Hawaii / Aleutians).
+            for _ in range(n):                                   # archipelago groups
+                gx = self._rng.uniform(0, width)
+                gy = self._rng.uniform(0, height)
+                if not _open_ocean(gx, gy):
+                    continue
+                for _ in range(self._rng.randint(2, 4)):
+                    cont_seeds.append((gx + self._rng.fuzzy(0, core_r * 0.55),
+                                       gy + self._rng.fuzzy(0, core_r * 0.55)))
+                    cont_radii.append(core_r * self._rng.uniform(0.14, 0.30))
+            for _ in range(max(2, (n + 1) // 2)):                # curved island arcs
+                x0 = self._rng.uniform(0, width)
+                y0 = self._rng.uniform(0, height)
                 ang = self._rng.uniform(0, 2 * math.pi)
-                length = self._rng.uniform(0.18, 0.38) * min(width, height)
-                k = self._rng.randint(3, 6)
+                curve = self._rng.fuzzy(0, 0.7)                  # total bend (radians)
+                length = self._rng.uniform(0.24, 0.44) * min(width, height)
+                k = self._rng.randint(4, 7)
                 for j in range(k):
                     f = j / (k - 1)
-                    cont_seeds.append((x0 + math.cos(ang) * length * f
-                                       + self._rng.fuzzy(0, core_r * 0.18),
-                                       y0 + math.sin(ang) * length * f
-                                       + self._rng.fuzzy(0, core_r * 0.18)))
-                    cont_radii.append(core_r * (0.20 - 0.10 * f))  # taper along the track
+                    a = ang + curve * f
+                    ix = x0 + math.cos(a) * length * f + self._rng.fuzzy(0, core_r * 0.12)
+                    iy = y0 + math.sin(a) * length * f + self._rng.fuzzy(0, core_r * 0.12)
+                    if not _open_ocean(ix, iy):  # skip seamounts that would hit a continent
+                        continue
+                    cont_seeds.append((ix, iy))
+                    cont_radii.append(core_r * (0.28 - 0.15 * f))  # bigger, tapering
             # Broad open-ocean plates across the full map frame the continents in deep
             # water and supply oceanic crust for the drift/uplift model below.
             ocean_seeds += [(self._rng.uniform(0, width), self._rng.uniform(0, height))
