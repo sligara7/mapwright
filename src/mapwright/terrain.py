@@ -272,7 +272,7 @@ class RegionalTerrainGenerator:
         sea_level = cfg.sea_level
         erosion_passes = max(1, round(1 + cfg.roughness * 4))
 
-        n_cells = int(np.clip(round(width * height / cell_area), 16, 1500))
+        n_cells = int(np.clip(round(width * height / cell_area), 16, 8000))
         seeds = _geometry.jittered_grid_seeds(self._rng, width, height, n_cells)
         cell_of, seeds = _geometry.voronoi_grid(width, height, seeds, relax_iterations)
         cells = self._build_cells(seeds, cell_of)
@@ -444,19 +444,67 @@ class RegionalTerrainGenerator:
             ocean_seeds += [(self._rng.uniform(0, width), self._rng.uniform(0, height))
                             for _ in range(4)]
         else:
-            ring = cfg.continent_spread * min(width, height) * 0.42
-
-            def ring_pt(angle: float) -> tuple[float, float]:
-                return (cx + ring * math.cos(angle) + self._rng.fuzzy(0, width * 0.05),
-                        cy + ring * math.sin(angle) + self._rng.fuzzy(0, height * 0.05))
-
-            for i in range(n):
-                cont_seeds.append(ring_pt(2 * math.pi * i / n + self._rng.fuzzy(0, 0.4)))
-                ocean_seeds.append(ring_pt(2 * math.pi * (i + 0.5) / n + self._rng.fuzzy(0, 0.4)))
-            ocean_seeds.append((cx + self._rng.fuzzy(0, width * 0.1),
-                                cy + self._rng.fuzzy(0, height * 0.1)))  # inner sea
+            # Several continents scattered across the whole map (not on a centred
+            # ring), so land spreads toward the planet's edges instead of clustering in
+            # a central disk. Each continent is a small CLUSTER of 2–3 overlapping
+            # cratons of differing size, so its outline is an irregular union (capes,
+            # bays, peninsulas) rather than a single circular bump. `continent_spread`
+            # widens the band the centres may occupy.
+            self._ocean_dir = self._rng.uniform(0.0, 2.0 * math.pi)
+            spread = cfg.continent_spread
+            margin_x = width * (0.26 - 0.18 * spread)
+            margin_y = height * (0.26 - 0.18 * spread)
+            core_r = 0.34 * math.sqrt(width * height / max(n, 1))  # nominal continent radius
+            min_sep = core_r * (1.8 + 0.6 * spread)               # centres kept well apart
+            # Poisson-disk-ish rejection so continent centres start well separated.
+            centres: list[tuple[float, float]] = []
+            attempts = 0
+            while len(centres) < n and attempts < n * 80:
+                attempts += 1
+                px = self._rng.uniform(margin_x, width - margin_x)
+                py = self._rng.uniform(margin_y, height - margin_y)
+                if all((px - sx) ** 2 + (py - sy) ** 2 >= min_sep ** 2
+                       for sx, sy in centres):
+                    centres.append((px, py))
+            while len(centres) < n:  # tight packing fell short → fill loosely
+                centres.append((self._rng.uniform(margin_x, width - margin_x),
+                                self._rng.uniform(margin_y, height - margin_y)))
+            # Build each continent from a cluster of cratons; record a radius per
+            # craton so the swell base (below) sums them into one irregular landmass.
+            cont_radii: list[float] = []
+            for px, py in centres:
+                csize = core_r * self._rng.uniform(0.75, 1.25)    # non-uniform continents
+                for _ in range(self._rng.randint(2, 3)):
+                    cont_seeds.append((px + self._rng.fuzzy(0, csize * 0.55),
+                                       py + self._rng.fuzzy(0, csize * 0.55)))
+                    cont_radii.append(csize * self._rng.uniform(0.55, 0.85))
+            # Populate the oceans so the world isn't just continents in a void. Both
+            # kinds are small swells folded into the same continental-swell field, so
+            # they self-gate (relief is allowed where the island is) without bridging
+            # continents:
+            #   • scattered lone islands / small groups, and
+            #   • a few volcanic ISLAND CHAINS — short lines of shrinking seamounts
+            #     (a hotspot track, Hawaii-style) across open water.
+            for _ in range(4 * n + 6):                            # scattered islets
+                cont_seeds.append((self._rng.uniform(0, width),
+                                   self._rng.uniform(0, height)))
+                cont_radii.append(core_r * self._rng.uniform(0.10, 0.26))
+            for _ in range(max(2, n // 2)):                       # island chains/arcs
+                x0, y0 = self._rng.uniform(0, width), self._rng.uniform(0, height)
+                ang = self._rng.uniform(0, 2 * math.pi)
+                length = self._rng.uniform(0.18, 0.38) * min(width, height)
+                k = self._rng.randint(3, 6)
+                for j in range(k):
+                    f = j / (k - 1)
+                    cont_seeds.append((x0 + math.cos(ang) * length * f
+                                       + self._rng.fuzzy(0, core_r * 0.18),
+                                       y0 + math.sin(ang) * length * f
+                                       + self._rng.fuzzy(0, core_r * 0.18)))
+                    cont_radii.append(core_r * (0.20 - 0.10 * f))  # taper along the track
+            # Broad open-ocean plates across the full map frame the continents in deep
+            # water and supply oceanic crust for the drift/uplift model below.
             ocean_seeds += [(self._rng.uniform(0, width), self._rng.uniform(0, height))
-                            for _ in range(2)]
+                            for _ in range(2 * n + 4)]
         seeds = cont_seeds + ocean_seeds
         is_continental = [True] * len(cont_seeds) + [False] * len(ocean_seeds)
         n_plates = len(seeds)
@@ -467,35 +515,88 @@ class RegionalTerrainGenerator:
                + (centroids[:, None, 1] - seed_arr[None, :, 1]) ** 2)
         plate = d2p.argmin(axis=1)
 
-        # A random drift direction (+ speed) per plate.
-        drift = np.array([
-            (math.cos(a) * s, math.sin(a) * s)
-            for a, s in ((self._rng.uniform(0, 2 * math.pi), self._rng.uniform(0.4, 1.0))
-                         for _ in range(n_plates))
+        # Per-plate EULER POLE: a plate doesn't slide rigidly, it rotates about a pole,
+        # so its velocity (ω × r) varies in direction and speed across the plate. A
+        # single boundary then changes character along its length — convergent at one
+        # end, transform/divergent at the other — yielding arcuate, waxing-and-waning
+        # mountain belts instead of uniform ridges. A pole placed far from the map
+        # degenerates to near-uniform translation, so this strictly generalises the
+        # old single-drift model. Pole `ω` is scaled so the speed near map centre lands
+        # in the old 0.4–1.0 band; sign is random (clockwise / anticlockwise spin).
+        cxm, cym = width / 2, height / 2
+        pole = np.array([
+            (self._rng.uniform(-0.3 * width, 1.3 * width),
+             self._rng.uniform(-0.3 * height, 1.3 * height))
+            for _ in range(n_plates)
+        ])
+        omega = np.array([
+            (1.0 if self._rng.random() < 0.5 else -1.0) * self._rng.uniform(0.4, 1.0)
+            / max(math.hypot(pole[i, 0] - cxm, pole[i, 1] - cym),
+                  0.3 * min(width, height))
+            for i in range(n_plates)
         ])
 
-        # Base elevation by plate type: continental crust rides high, oceanic low.
-        base = np.array([0.55 if is_continental[plate[i]] else -0.65 for i in range(n_cells)])
+        # Base elevation. A single continent uses hard plate membership (its
+        # directional frame carves the coast). Multiple continents instead get a
+        # continental SWELL that falls off with distance from each continental core,
+        # so every mass is locally bounded and far-apart cores cannot fuse into one
+        # blob the way a shared high-crust plate partition does. Oceanic floor sits
+        # low everywhere else.
+        if n == 1:
+            base = np.array([0.55 if is_continental[plate[i]] else -0.65
+                             for i in range(n_cells)])
+        else:
+            cs = np.array(cont_seeds)
+            cr = np.array(cont_radii)
+            d2 = (((centroids[:, None, 0] - cs[None, :, 0]) ** 2)
+                  + ((centroids[:, None, 1] - cs[None, :, 1]) ** 2))
+            # Each cell takes the strongest nearby craton swell; overlapping cratons in
+            # one cluster fuse into an irregular continent, distant clusters stay apart.
+            swell = np.exp(-d2 / (cr[None, :] ** 2)).max(axis=1)
+            base = -0.65 + 1.20 * swell   # core ≈ +0.55, open ocean ≈ -0.65
 
-        # Convergent-boundary uplift: at a cell bordering another plate, project the
-        # plates' relative drift onto the boundary normal; pushing together → uplift,
-        # scaled by what's colliding (continent–continent ranges > arcs).
-        boundary = np.zeros(n_cells)
+        # Boundary types: evaluate each plate's rotational velocity (ω × r) AT the
+        # boundary cell and split their relative motion into a NORMAL component (across
+        # the boundary) and a TANGENTIAL one (along it). The dominant component sets the
+        # boundary's character, which carves a different landform:
+        #   • normal > 0, dominant  → CONVERGENT: crust piles up → mountain range
+        #   • normal < 0, dominant  → DIVERGENT: crust pulls apart → rift valley
+        #   • tangential dominant   → TRANSFORM: shear → a weaker linear fault valley
+        # Because velocity is sampled per cell, the type varies ALONG one boundary —
+        # the same fault can collide at one end and rift at the other (the Euler payoff).
+        boundary = np.zeros(n_cells)   # convergent uplift (≥ 0)
+        rift = np.zeros(n_cells)       # extensional / transform lowering (≥ 0)
         for c in cells:
             pi = plate[c.id]
+            # Plate pi's velocity at this cell: ω × r, r = cell − pole.
+            vix = -omega[pi] * (c.cy - pole[pi, 1])
+            viy = omega[pi] * (c.cx - pole[pi, 0])
             for nb in c.neighbors:
                 pj = plate[nb]
                 if pj == pi:
                     continue
                 dx, dy = cells[nb].cx - c.cx, cells[nb].cy - c.cy
                 length = math.hypot(dx, dy) or 1.0
-                conv = ((drift[pi, 0] - drift[pj, 0]) * dx
-                        + (drift[pi, 1] - drift[pj, 1]) * dy) / length
-                if conv <= 0:
-                    continue
+                vjx = -omega[pj] * (c.cy - pole[pj, 1])
+                vjy = omega[pj] * (c.cx - pole[pj, 0])
+                rvx, rvy = vix - vjx, viy - vjy
+                normal = (rvx * dx + rvy * dy) / length        # + together, − apart
+                tang = abs(rvx * -dy + rvy * dx) / length      # shear magnitude
                 ci, cj = is_continental[pi], is_continental[pj]
-                mag = 1.0 if (ci and cj) else (0.6 if (ci or cj) else 0.35)
-                boundary[c.id] = max(boundary[c.id], conv * mag)
+                if normal > 0 and normal >= tang:
+                    # Convergent → uplift, scaled by what collides (cont–cont > arcs).
+                    mag = 1.0 if (ci and cj) else (0.6 if (ci or cj) else 0.35)
+                    boundary[c.id] = max(boundary[c.id], normal * mag)
+                elif -normal >= tang:
+                    # Divergent → rift. Pure ocean–ocean spreading is a (submarine)
+                    # ridge, not a continental rift, so only carve where land is
+                    # involved; a continent splitting apart drops a deep valley.
+                    rmag = 1.0 if (ci and cj) else (0.7 if (ci or cj) else 0.0)
+                    rift[c.id] = max(rift[c.id], -normal * rmag)
+                else:
+                    # Transform → a shallower linear fault valley from the shear.
+                    rmag = 0.6 if (ci or cj) else 0.0
+                    rift[c.id] = max(rift[c.id], tang * 0.5 * rmag)
 
         # Spread uplift inland so ranges have width (neighbour-max with decay).
         uplift = boundary.copy()
@@ -509,6 +610,17 @@ class RegionalTerrainGenerator:
             uplift = spread
         uplift = uplift * (0.5 + 1.2 * cfg.mountain_density)
 
+        # Rifts/fault valleys are narrower than ranges: spread fewer passes, then scale.
+        for _ in range(2):
+            spread = rift.copy()
+            for c in cells:
+                for nb in c.neighbors:
+                    decayed = rift[nb] * 0.55
+                    if decayed > spread[c.id]:
+                        spread[c.id] = decayed
+            rift = spread
+        rift = rift * 1.3   # deep enough that a continental rift can flood into a sea
+
         # Fractal coastline detail breaks the straight plate edges into organic
         # bays/capes; a radial edge term frames the map in sea (works *with* the
         # percentile sea level below — it just pushes border cells to the low end).
@@ -518,11 +630,25 @@ class RegionalTerrainGenerator:
         # keep the symmetric radial frame, which already scatters them into islands;
         # a directional bias there would drown one whole flank of the ring.
         if n == 1:
-            raw = base + uplift + 0.55 * coast
+            raw = base + uplift - rift + 0.55 * coast
             frame = self._sea_frame(centroids, width, height, cfg, dir_amp=1.0)
         else:
-            raw = base + uplift + 0.45 * coast
-            frame = self._radial_frame(centroids, width, height, cfg)
+            # Gate the additive relief (mountains + coastline noise) by the swell so it
+            # only acts on or near continents. Otherwise uplift at mid-ocean plate
+            # boundaries and ±coast noise pile up in the gaps and bridge neighbouring
+            # continents back into one blob; gated, the open ocean stays deep and
+            # smooth, keeping the masses distinct.
+            gate = np.clip(swell * 1.6, 0.0, 1.0)
+            # Rift is gated too, so it carves valleys INTO continents (a gash that can
+            # flood into a linear sea) rather than deepening the open ocean.
+            raw = base + (uplift - rift + 0.45 * coast) * gate
+            # No border drown-frame for multi-continent: the swell base already frames
+            # every continent in deep ocean, and a border frame would just pull all the
+            # land back toward the map centre (the very clustering we are removing). The
+            # map is a planet WINDOW — continents may run right off any edge. A light
+            # edge_falloff still nudges the outermost rim under so masses don't plaster
+            # flush against all four borders.
+            frame = self._radial_frame(centroids, width, height, cfg) * 0.18 * cfg.edge_falloff
         self._finalize_heights(cells, raw, frame, cfg)
 
     def _radial_frame(self, centroids, width: int, height: int,
