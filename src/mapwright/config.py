@@ -47,6 +47,10 @@ _SPEC: list[tuple] = [
      "How readily rivers are traced; more = more, smaller rivers."),
     ("lake_density", float, 0.0, 1.0,
      "How readily inland basins fill into lakes; more = more, shallower lakes."),
+    ("polar_cold", float, 0.0, 1.0,
+     "Strength of the equator→pole temperature gradient. 0 = no cold caps "
+     "(uniformly warm); 1 = strong polar ice caps with snow near the top/bottom "
+     "edges. Latitude (north/south) sets where the cold is; this sets how much."),
 ]
 
 
@@ -83,6 +87,12 @@ class WorldMapConfig:
     """0..1 — how readily rivers are traced (more ⇒ more, smaller rivers)."""
     lake_density: float = 0.5
     """0..1 — how readily inland basins fill into lakes (more ⇒ more lakes)."""
+
+    # --- Climate (appended for contract stability; see EXPECTED_FIELDS) ---
+    polar_cold: float = 0.5
+    """0 ⇒ no polar chill (uniformly warm) .. 1 ⇒ strong cold ice caps at the
+    poles. Latitude sets *where* the cold falls (top/bottom edges); this knob
+    sets *how strong* the equator→pole gradient is."""
 
     def __post_init__(self) -> None:
         # Clamp everything so out-of-range inputs (e.g. from an LLM) are safe.
@@ -153,10 +163,12 @@ PRESETS: dict[str, dict] = {
     "highlands": {"continents": 1, "mountain_density": 0.95, "roughness": 0.75,
                   "river_density": 0.7},
     "desert": {"temperature": 0.85, "moisture": -0.85, "sea_level": 0.28,
-               "mountain_density": 0.25, "river_density": 0.12, "lake_density": 0.1},
-    "arctic": {"temperature": -0.85, "moisture": 0.1, "mountain_density": 0.5},
+               "mountain_density": 0.25, "river_density": 0.12, "lake_density": 0.1,
+               "polar_cold": 0.0},  # scorching pole-to-pole, no ice caps
+    "arctic": {"temperature": -0.85, "moisture": 0.1, "mountain_density": 0.5,
+               "polar_cold": 0.9},  # deep, wide ice caps
     "tropical": {"temperature": 0.6, "moisture": 0.85, "river_density": 0.85,
-                 "mountain_density": 0.55},
+                 "mountain_density": 0.55, "polar_cold": 0.2},  # warm to the poles
     "islands": {"continents": 12, "sea_level": 0.62, "continent_spread": 0.85,
                 "mountain_density": 0.3},
 }

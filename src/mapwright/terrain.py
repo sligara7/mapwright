@@ -969,14 +969,21 @@ class RegionalTerrainGenerator:
         self, cells: list[TerrainCell], width: int, height: int, sea_level: float,
         cfg: WorldMapConfig,
     ) -> None:
-        # Temperature: warm band at a randomly placed "equator" latitude, minus
-        # an elevation lapse rate so peaks are cold, plus a global config bias.
-        equator = self._rng.uniform(0.35, 0.65)
+        # Temperature: a warm equator running across the MIDDLE of the map cooling
+        # toward the poles (top & bottom edges), minus a gentle elevation lapse, plus
+        # a global bias. `polar_cold` sets how steeply it cools toward the poles — i.e.
+        # how large the cold/snow ice caps are. The equator is only lightly jittered so
+        # north/south reliably means colder. The lapse is gentle so equatorial peaks
+        # read as bare MOUNTAIN, not snow; snow is driven by latitude (cold poles) and
+        # only the very highest cold ground.
+        equator = 0.5 + self._rng.fuzzy(0, 0.05)
+        grad = 0.9 + 1.6 * cfg.polar_cold              # equator→pole cooling rate
         for c in cells:
             lat = c.cy / max(1, height - 1)
-            temp = 1.0 - 2.0 * abs(lat - equator)
-            temp -= 0.6 * max(0.0, c.height - sea_level)  # lapse with elevation
-            temp += cfg.temperature                        # global bias
+            band = abs(lat - equator) * 2.0            # 0 at equator .. ~1 at a pole
+            temp = 1.0 - grad * band
+            temp -= 0.35 * max(0.0, c.height - sea_level)  # gentle elevation lapse
+            temp += cfg.temperature                         # global bias
             c.temperature = float(np.clip(temp + self._rng.fuzzy(0, 0.05), 0.0, 1.0))
 
         # Moisture: multi-source BFS hop-distance from water (sea, lakes, rivers
@@ -1056,6 +1063,11 @@ class RegionalTerrainGenerator:
         """Temperature×moisture×elevation → biome (Whittaker-style matrix)."""
         rel = (c.height - sea_level) / max(1e-6, 1 - sea_level)  # 0..1 above sea
         t, m = c.temperature, c.moisture
+
+        # Polar ice cap: ground cold enough freezes over at any elevation, so the
+        # far north/south read as white snow rather than brown tundra.
+        if t < 0.12:
+            return Biome.SNOW
 
         # Elevation dominates at the extremes.
         if rel > 0.72:

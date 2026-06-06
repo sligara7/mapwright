@@ -70,7 +70,7 @@ EXPECTED_FIELDS = {
     "WorldMapConfig": ("sea_level", "continents", "continent_spread",
                        "edge_falloff", "mountain_density", "roughness",
                        "land_age", "temperature", "moisture", "river_density",
-                       "lake_density"),
+                       "lake_density", "polar_cold"),
     "CellSummary": ("dominant_biome", "temperature", "moisture", "mean_height",
                     "has_river", "has_lake", "water_fraction", "cell_count",
                     "affordances"),
