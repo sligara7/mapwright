@@ -8,6 +8,48 @@ All notable changes to mapwright are documented here. The format follows
 `tests/test_api_contract.py`). While the version is `0.x`, minor versions may
 make breaking changes; these will always be noted here.
 
+## [0.25.0] — 2026-06-06
+
+### Added
+- **`world` preset.** One-line access to a full planet: `continents=8`,
+  `sea_level=0.64`, `continent_spread=0.95`, `mountain_density=0.7`,
+  `polar_cold=0.5`. Best rendered on a wide canvas (e.g. `generate(240, 130)`)
+  so the continents read as a world rather than one zoomed-in landmass.
+- **`polar_cold` config knob** (0..1, default 0.5). Strength of the
+  equator→pole temperature gradient — i.e. how large the cold/snow ice caps
+  are. Latitude sets *where* the cold falls (top/bottom edges of the map);
+  this sets *how much*. Appended as a trailing `WorldMapConfig` field, so
+  positional construction and existing JSON keys are unaffected; `to_dict()`
+  now emits one additional key.
+
+### Changed
+- **Multi-continent worlds reworked to read as a whole planet, not one central
+  blob.** Continents are now scattered across the map as clusters of overlapping
+  cratons (irregular outlines), sized by a skewed draw and capped by the
+  distance to their nearest neighbour (a few big landmasses among several small
+  ones, reliably separated by open ocean). Continental crust is a distance
+  falloff *swell* rather than hard plate membership, so far-apart landmasses
+  can't fuse; the centralizing radial sea-frame is dropped, so continents may
+  run to any map edge.
+- **Plate motion uses a per-plate Euler pole** (rotation, `v = ω × r`) instead
+  of a single translation vector, so a boundary's character varies along its
+  length — arcuate, waxing mountain belts rather than uniform ridges. Boundaries
+  are classified convergent / divergent / transform and carve mountains, rift
+  troughs, and fault valleys respectively.
+- **Oceans are populated** with clustered archipelagos and curved volcanic
+  island arcs (kept clear of the continents so they read as open-water islands).
+- **Climate is latitude-driven.** The warm equator is anchored to the middle of
+  the map (lightly jittered) so north/south reliably means colder; the elevation
+  lapse is gentler, so equatorial peaks read as bare mountain rather than snow.
+  A polar ice-cap rule renders the far north/south as white snow. Presets:
+  `desert` is now scorching pole-to-pole (`polar_cold=0`), `arctic` has deep
+  caps (0.9), `tropical` stays warm toward the poles (0.2).
+- **Internal cell cap raised 1500 → 8000** so planet-scale canvases render with
+  enough detail for islands and coastlines. Small canvases are unaffected (they
+  never approached the cap); large canvases generate more slowly in proportion.
+
+Single-continent, template, and elevation-hint worlds are byte-unchanged.
+
 ## [0.24.0] — 2026-06-06
 
 ### Added
