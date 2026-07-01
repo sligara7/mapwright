@@ -55,7 +55,7 @@ from .settlement import (
 from .settlement_renderer import SettlementSVGRenderer
 from .svg_renderer import Marker, RegionalSVGRenderer
 from ._tectonics import simulate_tectonic_world
-from .themes import THEMES, Theme
+from .themes import DEFAULT_THEME, THEMES, Theme, get_theme, theme_names
 from .terrain import (
     Biome,
     River,
@@ -66,7 +66,7 @@ from .terrain import (
     compute_cell_polygons,
 )
 
-__version__ = "0.27.0"
+__version__ = "0.27.1"
 
 __all__ = [
     "SeededRNG",
@@ -95,6 +95,9 @@ __all__ = [
     "PlacedLabel",
     "Theme",
     "THEMES",
+    "DEFAULT_THEME",
+    "get_theme",
+    "theme_names",
     "ArtPack",
     "AtlasRenderer",
     "Road",

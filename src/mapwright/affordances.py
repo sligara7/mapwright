@@ -25,6 +25,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Iterable
 
+from . import _serde
 from .terrain import Biome, TerrainCell
 
 # Base affordances intrinsic to each biome, independent of climate swing.
@@ -131,6 +132,14 @@ class CellSummary:
             cell_count=int(data["cell_count"]),
             affordances=tuple(data["affordances"]),
         )
+
+    def to_json(self, **kwargs) -> str:
+        """Serialise to a JSON string (``kwargs`` pass to :func:`json.dumps`)."""
+        return _serde.to_json(self, **kwargs)
+
+    @classmethod
+    def from_json(cls, text: str) -> "CellSummary":
+        return _serde.from_json(cls, text)
 
 
 def summarize_cells(cells: Iterable[TerrainCell]) -> CellSummary:

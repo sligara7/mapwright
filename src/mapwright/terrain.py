@@ -721,7 +721,8 @@ class RegionalTerrainGenerator:
             # map is a planet WINDOW — continents may run right off any edge. A light
             # edge_falloff still nudges the outermost rim under so masses don't plaster
             # flush against all four borders.
-            frame = self._radial_frame(centroids, width, height, cfg) * 0.18 * cfg.edge_falloff
+            # _radial_frame already scales by edge_falloff; don't square it here.
+            frame = self._radial_frame(centroids, width, height, cfg) * 0.18
         self._finalize_heights(cells, raw, frame, cfg)
 
     def _radial_frame(self, centroids, width: int, height: int,
@@ -986,9 +987,14 @@ class RegionalTerrainGenerator:
         cutoff = max(5.0, float(np.quantile(land_flux, 1.0 - keep)))
         rivers: list[River] = []
         used: set[int] = set()
+        # Trace headwaters (lowest flux) first: each traces the full length to the
+        # sea before its cells are marked used, so a river is one continuous
+        # source→mouth polyline and later tributaries stop where they meet it.
+        # (Tracing highest-flux-first instead shatters every river into 2-cell
+        # stubs, since each source is immediately upstream of an already-used cell.)
         sources = sorted(
             (c for c in cells if not c.is_water and not c.is_lake and c.flux >= cutoff),
-            key=lambda c: c.flux, reverse=True,
+            key=lambda c: c.flux,
         )
         for src in sources:
             if src.id in used:
@@ -1004,7 +1010,9 @@ class RegionalTerrainGenerator:
                 for cid in path:
                     used.add(cid)
                     cells[cid].is_river = True
-                rivers.append(River(cells=path, width=math.sqrt(src.flux)))
+                # Width from the downstream end (most accumulated flow), so a trunk
+                # reads wide even though it started at a low-flux headwater.
+                rivers.append(River(cells=path, width=math.sqrt(cells[path[-1]].flux)))
         return rivers
 
     # -- 5b. Lakes -------------------------------------------------------

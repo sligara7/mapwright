@@ -8,6 +8,38 @@ All notable changes to mapwright are documented here. The format follows
 `tests/test_api_contract.py`). While the version is `0.x`, minor versions may
 make breaking changes; these will always be noted here.
 
+## [0.27.1] — 2026-07-01
+
+Bug fixes, cleanup, and a byte-identical performance win from a full-codebase
+review. One behaviour change: rivers are now continuous (see Fixed).
+
+### Fixed
+- **Rivers are continuous source→mouth polylines again.** They were traced
+  highest-flux-first, which shattered every river into 2-cell fragments — harmless
+  on the rendered map (the pieces tile), but `TerrainResult.rivers` and its
+  serialisation were fragmented, with per-fragment widths. Now traced
+  headwaters-first, and `River.width` comes from the downstream (mouth) end.
+  **This changes `rivers` output for a given seed.**
+- **`WorldMapConfig.from_dict` no longer crashes on noisy payloads.** A `str`,
+  `None`, `NaN`, or `inf` value now coerces to a finite number (or the field
+  default) and clamps, instead of raising `TypeError` — honouring the documented
+  "safe for sloppy LLM/JSON input" contract.
+- **`edge_falloff` was applied squared** in multi-continent worlds; now applied
+  once. (Only affected `continents>1` with `edge_falloff≠1.0`; no preset uses that.)
+- **Smart labels** no longer misalign colour/style when a region or feature has an
+  empty name, and **features** never get an empty name.
+
+### Changed
+- Lloyd relaxation vectorised (`np.bincount`) — ~24% faster world generation,
+  byte-identical output. Removed dead energy bookkeeping from the label placer
+  (and made its inner loop scan only overlapping labels); de-cubed the dungeon
+  extra-corridor loop.
+
+### Added
+- `to_json` / `from_json` on `Region`, `Road`, `CellSummary`, and `WorldMapConfig`
+  (parity with the other public dataclasses), and exported `get_theme`,
+  `theme_names`, `DEFAULT_THEME`.
+
 ## [0.27.0] — 2026-07-01
 
 Two additive, non-breaking feature sets: **tectonic world generation** (realistic

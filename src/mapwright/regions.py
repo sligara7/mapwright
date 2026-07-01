@@ -16,6 +16,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 
+from . import _serde
 from .names import NameGenerator
 from .rng import SeededRNG
 from .terrain import TerrainResult
@@ -42,6 +43,14 @@ class Region:
             capital=int(data["capital"]),
             cells=[int(c) for c in data["cells"]],
         )
+
+    def to_json(self, **kwargs) -> str:
+        """Serialise to a JSON string (``kwargs`` pass to :func:`json.dumps`)."""
+        return _serde.to_json(self, **kwargs)
+
+    @classmethod
+    def from_json(cls, text: str) -> "Region":
+        return _serde.from_json(cls, text)
 
 
 class RegionGenerator:

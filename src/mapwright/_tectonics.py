@@ -327,10 +327,13 @@ def _fill_holes(grid: np.ndarray, max_passes: int = 64) -> np.ndarray:
             acc[ok] += rolled[ok]
             cnt[ok] += 1.0
         fillable = nan & (cnt > 0)
+        if not fillable.any():
+            break                                      # nothing more can be filled
         g = g.copy()
         g[fillable] = acc[fillable] / cnt[fillable]
     if np.isnan(g).any():                              # isolated cells -> global mean
-        g = np.where(np.isnan(g), np.nanmean(g), g)
+        fallback = 0.0 if np.isnan(g).all() else float(np.nanmean(g))
+        g = np.where(np.isnan(g), fallback, g)
     return g
 
 

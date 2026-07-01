@@ -220,12 +220,14 @@ class DungeonGenerator:
         edges = _graph.prim_mst(n, dist2)
 
         # A few extra edges → loops (less tree-like, more interesting).
+        chosen = {frozenset(e) for e in edges}  # O(1) membership vs O(E) list scan
         for i in range(n):
             for j in range(i + 1, n):
-                if (i, j) in edges or (j, i) in edges:
+                if frozenset((i, j)) in chosen:
                     continue
                 if self._rng.chance(cfg.extra_corridor_chance):
                     edges.append((i, j))
+                    chosen.add(frozenset((i, j)))
 
         for i, j in edges:
             corridors.extend(self._carve_l(centers[i], centers[j], grid))

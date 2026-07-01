@@ -17,6 +17,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from . import _serde
 from ._graph import astar, prim_mst
 from .terrain import TerrainResult
 
@@ -39,6 +40,14 @@ class Road:
     @classmethod
     def from_dict(cls, data: dict) -> "Road":
         return cls(cells=[int(c) for c in data["cells"]])
+
+    def to_json(self, **kwargs) -> str:
+        """Serialise to a JSON string (``kwargs`` pass to :func:`json.dumps`)."""
+        return _serde.to_json(self, **kwargs)
+
+    @classmethod
+    def from_json(cls, text: str) -> "Road":
+        return _serde.from_json(cls, text)
 
 
 class RegionalRoadGenerator:

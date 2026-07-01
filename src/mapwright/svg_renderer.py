@@ -318,12 +318,16 @@ class RegionalSVGRenderer:
                 styles.append((self.theme.label_fill, False))
         if regions:
             for rg in regions:
+                if not rg.name:
+                    continue  # keep styles/placed index-aligned (place() drops blanks)
                 cap = cells[rg.capital]
                 requests.append(LabelRequest(rg.name, (cap.cx * s, cap.cy * s),
                                              "area", font_size=12))
                 styles.append((self.theme.region_label, True))
         if features:
             for f in features:
+                if not f.name:
+                    continue
                 fs = self._FEATURE_FONT.get(f.kind, 11)
                 requests.append(LabelRequest(f.name, (f.centroid[0] * s, f.centroid[1] * s),
                                              "area", font_size=fs))

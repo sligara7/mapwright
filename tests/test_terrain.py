@@ -92,6 +92,19 @@ class TestTerrainRealism:
         for river in result.rivers:
             assert len(river.cells) >= 2
             assert river.width > 0
+            # Consecutive cells are downhill-linked (a real traced chain).
+            for a, b in zip(river.cells, river.cells[1:]):
+                assert result.cells[a].downhill == b
+
+    def test_rivers_are_continuous_not_two_cell_stubs(self):
+        # Regression: tracing highest-flux-first shattered every river into
+        # 2-cell fragments. Continuous multi-cell trunks must exist.
+        longest = max(
+            (len(r.cells) for s in (7, 42, 101)
+             for r in _gen(s, 90, 60).rivers),
+            default=0,
+        )
+        assert longest > 2
 
 
 class TestLakes:

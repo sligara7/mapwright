@@ -139,3 +139,36 @@ class TestHydrology:
         many = sum(len(_world(WorldMapConfig(river_density=0.95), seed=s, w=60, h=44).rivers)
                    for s in range(8))
         assert many > few
+
+
+class TestPayloadCoercion:
+    """from_dict must survive sloppy LLM/JSON payloads (the documented contract):
+    coerce wrong types, default NaN/None, and still clamp out-of-range."""
+
+    def test_numeric_string_is_parsed(self):
+        assert WorldMapConfig.from_dict({"sea_level": "0.42"}).sea_level == 0.42
+        assert WorldMapConfig.from_dict({"continents": "8"}).continents == 8
+
+    def test_none_falls_back_to_default(self):
+        assert WorldMapConfig.from_dict({"sea_level": None}).sea_level \
+            == WorldMapConfig().sea_level
+
+    def test_nan_and_inf_fall_back_to_default(self):
+        default = WorldMapConfig().sea_level
+        assert WorldMapConfig.from_dict({"sea_level": float("nan")}).sea_level == default
+        assert WorldMapConfig.from_dict({"sea_level": float("inf")}).sea_level == default
+
+    def test_garbage_string_falls_back_to_default(self):
+        assert WorldMapConfig.from_dict({"moisture": "very wet"}).moisture \
+            == WorldMapConfig().moisture
+
+    def test_out_of_range_still_clamps(self):
+        assert WorldMapConfig.from_dict({"sea_level": 9.0}).sea_level == 0.9
+        assert WorldMapConfig.from_dict({"sea_level": -5}).sea_level == 0.05
+
+    def test_valid_values_unchanged(self):
+        assert WorldMapConfig.from_dict({"sea_level": 0.37}).sea_level == 0.37
+
+    def test_json_round_trip(self):
+        cfg = WorldMapConfig(continents=5, sea_level=0.4)
+        assert WorldMapConfig.from_json(cfg.to_json()) == cfg

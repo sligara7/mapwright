@@ -232,17 +232,18 @@ class LabelPlacer:
 
     def _anneal(self, cand, base) -> list[int]:
         n = len(cand)
+        if n == 1:  # single label: just take its lowest-penalty candidate
+            return [min(range(len(base[0])), key=lambda c: base[0][c])]
+
         # Flatten candidates to global ids for the overlap adjacency.
         offset = [0] * n
         boxes: list[tuple] = []
+        label_of: list[int] = []
         for li in range(n):
             offset[li] = len(boxes)
             for c in cand[li]:
                 boxes.append(c.box)
-        label_of = [0] * len(boxes)
-        for li in range(n):
-            for ci in range(len(cand[li])):
-                label_of[offset[li] + ci] = li
+                label_of.append(li)
 
         # Overlap adjacency: gid -> set of gids from *other* labels overlapping it.
         overlap: list[set] = [set() for _ in boxes]
@@ -258,23 +259,6 @@ class LabelPlacer:
         active = [rng.randint(0, len(cand[li]) - 1) for li in range(n)]
         active_gid = [offset[li] + active[li] for li in range(n)]
 
-        def colliders(li: int, gid: int) -> int:
-            oset = overlap[gid]
-            if not oset:
-                return 0
-            return sum(1 for m in range(n) if m != li and active_gid[m] in oset)
-
-        coll = [colliders(li, active_gid[li]) for li in range(n)]
-        total_base = sum(base[li][active[li]] for li in range(n))
-        total_coll = sum(coll)  # each overlapping pair counted twice
-
-        def energy():
-            return total_base + _W_OVERLAP * total_coll
-
-        if n == 1:
-            active[0] = min(range(len(base[0])), key=lambda c: base[0][c])
-            return active
-
         temp = _T0
         for _ in range(_MAX_TEMPS):
             successes = attempts = 0
@@ -289,33 +273,27 @@ class LabelPlacer:
                 new_c = rng.randint(0, len(cand[li]) - 1)
                 if new_c == old_c:
                     continue
-                old_gid = active_gid[li]
-                new_gid = offset[li] + new_c
 
                 d_base = base[li][new_c] - base[li][old_c]
-                # Collision delta: how each other label's overlap with li changes.
+                # Collision delta: only labels whose *active* candidate overlaps
+                # the old or new box can change, so scan those two (small) overlap
+                # sets rather than all n labels.
+                o_old = overlap[active_gid[li]]
+                o_new = overlap[offset[li] + new_c]
                 d_pairs = 0
-                changed: list[tuple[int, int]] = []
-                o_old, o_new = overlap[old_gid], overlap[new_gid]
-                for m in range(n):
-                    if m == li:
-                        continue
-                    was = 1 if active_gid[m] in o_old else 0
-                    now = 1 if active_gid[m] in o_new else 0
-                    if was != now:
-                        d_pairs += now - was
-                        changed.append((m, now - was))
+                for gid in o_old:
+                    m = label_of[gid]
+                    if m != li and active_gid[m] == gid:
+                        d_pairs -= 1
+                for gid in o_new:
+                    m = label_of[gid]
+                    if m != li and active_gid[m] == gid:
+                        d_pairs += 1
                 d_energy = d_base + _W_OVERLAP * 2 * d_pairs
 
                 if d_energy <= 0 or rng.random() < math.exp(-d_energy / temp):
-                    # Commit.
                     active[li] = new_c
-                    active_gid[li] = new_gid
-                    for m, dv in changed:
-                        coll[m] += dv
-                    coll[li] += d_pairs
-                    total_base += d_base
-                    total_coll += 2 * d_pairs
+                    active_gid[li] = offset[li] + new_c
                     successes += 1
             if successes == 0:
                 break  # frozen

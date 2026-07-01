@@ -14,7 +14,21 @@ valid ranges, so a sloppy LLM payload can't produce a broken world).
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, fields
+import math
+from dataclasses import asdict, dataclass
+
+from . import _serde
+
+
+def _coerce(value, default: float) -> float:
+    """Best-effort numeric coercion for noisy payloads (LLM/JSON): parse to a
+    finite float, else fall back to the field default. So a stray ``"0.5"``,
+    ``None``, or ``NaN`` yields a valid config instead of a ``TypeError``."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return float(default)
+    return float(default) if (math.isnan(v) or math.isinf(v)) else v
 
 
 def _clamp(value: float, lo: float, hi: float) -> float:
@@ -95,9 +109,12 @@ class WorldMapConfig:
     sets *how strong* the equator→pole gradient is."""
 
     def __post_init__(self) -> None:
-        # Clamp everything so out-of-range inputs (e.g. from an LLM) are safe.
+        # Coerce then clamp every field, so out-of-range OR wrong-typed inputs
+        # (e.g. a sloppy LLM/JSON payload: "0.5", None, NaN) are made safe rather
+        # than crashing — the documented contract of from_dict().
+        dfields = type(self).__dataclass_fields__
         for name, typ, lo, hi, _desc in _SPEC:
-            value = _clamp(getattr(self, name), lo, hi)
+            value = _clamp(_coerce(getattr(self, name), dfields[name].default), lo, hi)
             setattr(self, name, int(value) if typ is int else float(value))
 
     # -- serialisation / interop ----------------------------------------
@@ -107,9 +124,17 @@ class WorldMapConfig:
 
     @classmethod
     def from_dict(cls, data: dict) -> "WorldMapConfig":
-        """Build from a (possibly partial / noisy) mapping; unknown keys ignored."""
-        known = {f.name for f in fields(cls)}
-        return cls(**{k: v for k, v in data.items() if k in known})
+        """Build from a (possibly partial / noisy) mapping; unknown keys ignored,
+        wrong types/ranges coerced-and-clamped by ``__post_init__``."""
+        return cls(**_serde.only_known(cls, data))
+
+    def to_json(self, **kwargs) -> str:
+        """Serialise to a JSON string (``kwargs`` pass to :func:`json.dumps`)."""
+        return _serde.to_json(self, **kwargs)
+
+    @classmethod
+    def from_json(cls, text: str) -> "WorldMapConfig":
+        return _serde.from_json(cls, text)
 
     @classmethod
     def json_schema(cls) -> dict:

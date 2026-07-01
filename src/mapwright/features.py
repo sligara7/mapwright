@@ -171,9 +171,9 @@ class FeatureGenerator:
 
     def _name(self, kind: str, culture: str) -> str:
         forms = _FEATURE_FORMS[kind]
-        root = self._names.place(culture)
-        if not root:
-            return root
+        # NameGenerator.place() can rarely return "" — never emit an unnamed
+        # feature (a form template must always be applied).
+        root = self._names.place(culture) or "Uncharted"
         return self._rng.choice(forms).format(name=root)
 
     @staticmethod

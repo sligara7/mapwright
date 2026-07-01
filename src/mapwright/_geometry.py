@@ -67,13 +67,19 @@ def voronoi_grid(
     coords = np.stack([xs.ravel(), ys.ravel()], axis=1).astype(float)
     cell_of = nearest_site(coords, seeds).reshape(height, width)
 
+    n = len(seeds)
     for _ in range(relax):
-        new_seeds = seeds.copy()
+        # Move each seed to its region centroid. Vectorised with bincount (sum of
+        # pixel coords per cell / pixel count) instead of a per-cell mask pass —
+        # byte-identical because the coords are integers (sum order can't matter).
         flat = cell_of.ravel()
-        for cid in range(len(seeds)):
-            mask = flat == cid
-            if mask.any():
-                new_seeds[cid] = coords[mask].mean(axis=0)
+        cnt = np.bincount(flat, minlength=n).astype(float)
+        sx = np.bincount(flat, weights=coords[:, 0], minlength=n)
+        sy = np.bincount(flat, weights=coords[:, 1], minlength=n)
+        new_seeds = seeds.copy()
+        nonempty = cnt > 0  # an empty region keeps its old seed
+        new_seeds[nonempty, 0] = sx[nonempty] / cnt[nonempty]
+        new_seeds[nonempty, 1] = sy[nonempty] / cnt[nonempty]
         seeds = new_seeds
         cell_of = nearest_site(coords, seeds).reshape(height, width)
     return cell_of, seeds
