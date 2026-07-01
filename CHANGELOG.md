@@ -8,6 +8,68 @@ All notable changes to mapwright are documented here. The format follows
 `tests/test_api_contract.py`). While the version is `0.x`, minor versions may
 make breaking changes; these will always be noted here.
 
+## [0.27.0] — 2026-07-01
+
+Two additive, non-breaking feature sets: **tectonic world generation** (realistic
+planets from simulated plate motion) and a **cartography pass** (features, smart
+labels, hachures, scale bar). Existing worlds/renders are unchanged unless you opt
+in. (Development versioned through an internal 0.26; both ship here in 0.27.0.)
+
+### Added — tectonic worlds
+- **`generate(..., tectonic=True)`** (or a world-style name: `"continents"`
+  (default), `"pangea"`, `"archipelago"`, `"ocean"`, `"random"`). The base
+  morphology comes from a spherical plate-tectonics simulation — plates drift on a
+  sphere (Euler poles + Rodrigues rotation), collide into mountain belts, subduct,
+  and rift — captured as a single snapshot and used as the base heightmap. The
+  usual erosion / rivers / climate / biomes then run on top. Result: distinct
+  drifted continents, island arcs, ragged coasts, and collision mountain belts,
+  where the default model tends to produce one rounded blob.
+  - `land_age` drives how far the plates have drifted (young = little motion,
+    old = much); `continents` sets the plate count. The planet fills the frame
+    (its equator sits at the map middle, matching the latitude climate), so
+    `edge_falloff` is ignored in this mode.
+- **`simulate_tectonic_world(rng, *, plates, steps, world, warp, land, res,
+  nlon, nlat)`** — the engine as a standalone function, returning an
+  equirectangular signed-altitude grid (`> 0` land, `< 0` sea floor). numpy-only
+  and seed-deterministic (its own spatial-hash neighbour search and grid resample
+  — no scipy), so it doesn't disturb any other RNG stream.
+
+### Added — cartography pass
+- **Named geographic features** — new `FeatureGenerator` / `Feature`. Connected-
+  component flood fill labels and names the notable seas (`ocean`), enclosed
+  `lake`s, `island`s, mountain `range`s, and `forest`s, so a map has named
+  bodies to label rather than an anonymous biome field. Domain-neutral and
+  serialisable, in the shape of `RegionGenerator`. Per-kind size gates keep the
+  result to features worth naming.
+- **Simulated-annealing label placement** — new `LabelPlacer` /
+  `LabelRequest` / `PlacedLabel`. Discrete candidate positions + an additive
+  energy (frame/marker/line-work overlap + orientation preference + mutual
+  overlap) searched by geometric-cooling simulated annealing. Self-seeded
+  (`LabelPlacer(seed=...)`) so the renderer stays stateless and layout is fully
+  reproducible. Reusable across renderers.
+- **`RegionalSVGRenderer` cartography options** (all default to today's
+  behaviour):
+  - `relief_style="hillshade"` (default) | `"hachure"` | `"both"` and
+    `hachure_density` — per-cell pen-and-ink slope strokes.
+  - `render(..., features=...)` — draw named-feature labels.
+  - `render(..., smart_labels=True)` — replace the fixed-offset labels with one
+    annealed, collision-avoiding labels layer (`label_seed` on the renderer
+    picks the placement seed).
+  - `render(..., scale_bar=True, scale=..., unit=...)` — a scale bar using a
+    "map width = N units" model with nice-number (1/2/5×10ⁿ) tick rounding.
+  - `render(..., compass=True)` — a corner compass rose.
+
+Clean-room lineage for the cartography ideas: rlguy's FantasyMapGenerator (Zlib),
+Azgaar's FMG (MIT), Town Forge (MIT); see `NOTICE`.
+
+### Notes
+- Public API grew by six names — `simulate_tectonic_world`, `Feature`,
+  `FeatureGenerator`, `LabelPlacer`, `LabelRequest`, `PlacedLabel` — a minor,
+  additive bump. No existing signature changed; every new option is keyword-only
+  with a backward-compatible default.
+- Tectonic worlds are best on a wide canvas (e.g.
+  `generate(240, 130, PRESETS["world"], tectonic=True)`).
+
 ## [0.25.0] — 2026-06-06
 
 ### Added

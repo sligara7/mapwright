@@ -245,6 +245,7 @@ class RegionalTerrainGenerator:
         relax_iterations: int = 2,
         template: str = "",
         elevation_hint: ElevationHint | None = None,
+        tectonic: bool | str = False,
     ) -> TerrainResult:
         """Run the full pipeline and return terrain for a ``width×height`` grid.
 
@@ -267,6 +268,14 @@ class RegionalTerrainGenerator:
         how much floods (the lowest ``sea_level`` fraction of the hinted surface
         becomes water). It takes precedence over ``template``. Set
         ``edge_falloff=0`` in the config to let the hint place land at the borders.
+
+        ``tectonic=True`` (or a world-style name — ``"continents"`` (default),
+        ``"pangea"``, ``"archipelago"``, ``"ocean"``, ``"random"``) generates the
+        base morphology from a spherical **plate-tectonics** simulation: drifted
+        continents with real collision mountain belts, instead of noise blobs.
+        ``land_age`` sets how far the plates have drifted (young = little, old =
+        much); ``continents`` sets the plate count. The planet fills the frame, so
+        ``edge_falloff`` is ignored in this mode. Best on a wide canvas.
         """
         cfg = config or WorldMapConfig()
         sea_level = cfg.sea_level
@@ -278,7 +287,7 @@ class RegionalTerrainGenerator:
         cells = self._build_cells(seeds, cell_of)
 
         self._init_heightmap(cells, width, height, cfg, template=template,
-                             elevation_hint=elevation_hint)
+                             elevation_hint=elevation_hint, tectonic=tectonic)
         for cell in cells:
             cell.is_water = cell.height < sea_level
 
@@ -385,6 +394,7 @@ class RegionalTerrainGenerator:
     def _init_heightmap(
         self, cells: list[TerrainCell], width: int, height: int, cfg: WorldMapConfig,
         template: str = "", elevation_hint: ElevationHint | None = None,
+        tectonic: bool | str = False,
     ) -> None:
         cx, cy = width / 2, height / 2
         centroids = np.array([[c.cx, c.cy] for c in cells])
@@ -402,6 +412,39 @@ class RegionalTerrainGenerator:
             coast = (self._fbm(centroids, width, height, octaves=5, base_res=3) - 0.5) * 2.0
             raw = (h - 0.5) * 2.0 + 0.25 * coast
             self._finalize_heights(cells, raw, self._radial_frame(centroids, width, height, cfg), cfg)
+            return
+
+        # Tectonic mode: a spherical plate simulation supplies the base morphology
+        # (drifted continents + collision mountain belts) as an equirectangular
+        # field, sampled onto the cells like a hint. `land_age` → how far the plates
+        # drift; `continents` → plate count. A planet fills the frame (neutral, no
+        # edge falloff) and its equator sits at the map middle, matching the climate
+        # model. Lighter coast noise than the hint path so tectonic structure leads.
+        if tectonic:
+            from ._tectonics import WORLD_STYLES, simulate_tectonic_world
+            style = tectonic if isinstance(tectonic, str) else "continents"
+            if style not in WORLD_STYLES:
+                raise ValueError(
+                    f"unknown tectonic world style {style!r}; "
+                    f"choose from {sorted(WORLD_STYLES)}")
+            steps = int(round(8 + cfg.land_age * 72))          # young→old plate drift
+            plates = int(np.clip(6 + cfg.continents, 6, 18))
+            # res is the sim node grid; 64 (~4k nodes) is ample detail for a base
+            # field that gets resampled onto the map cells, and keeps it ~sub-second.
+            grid = simulate_tectonic_world(self._rng, plates=plates, steps=steps,
+                                           world=style, res=64, nlon=160, nlat=80)
+            # Emphasise land relief a touch (gamma < 1 on the land side lifts the
+            # foothills toward the crests) so collision belts read as mountain
+            # ranges with hill flanks after the percentile sea level, instead of a
+            # few isolated crest cells. Sea floor is left untouched.
+            land_side = grid > 0
+            grid[land_side] = grid[land_side] ** 0.65
+            h = self._sample_hint(grid, centroids, width, height)
+            hmin, hmax = float(h.min()), float(h.max())
+            h = (h - hmin) / max(1e-9, hmax - hmin)
+            coast = (self._fbm(centroids, width, height, octaves=5, base_res=3) - 0.5) * 2.0
+            raw = (h - 0.5) * 2.0 + 0.12 * coast
+            self._finalize_heights(cells, raw, np.zeros(n_cells), cfg)
             return
 
         # Template mode (Azgaar-style composed ops) — an alternative to the default

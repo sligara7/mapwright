@@ -16,7 +16,8 @@ copied from them; this NOTICE credits the lineage of the techniques.
     rivers, temperature x precipitation -> biome matrix, Markov per-culture
     name generation, single-seed determinism, SVG cartographic rendering,
     composable heightmap templates (hill/range/pit/trough/strait ops combined
-    into named continent archetypes).
+    into named continent archetypes), connected-component detection & naming of
+    geographic features (ocean/lake/island).
 
 * "Generating fantasy maps" by Martin O'Leary (mewo2), and its C++ implementation
   FantasyMapGenerator by Ryan L. Guy (rlguy) (Zlib License)
@@ -24,7 +25,14 @@ copied from them; this NOTICE credits the lineage of the techniques.
     https://github.com/rlguy/FantasyMapGenerator
     Ideas: hydraulic + creep erosion (river * sqrt(flux) * slope + creep *
     slope^2), Planchon-Darboux depression filling for guaranteed drainage,
-    slope-normal hillshade ("shaded relief") rendering.
+    slope-normal hillshade ("shaded relief") rendering, per-cell hachure
+    (slope-stroke) relief, and simulated-annealing cartographic label placement.
+
+* Town Forge by the Obsidian TTRPG Community (MIT License)
+    https://github.com/Obsidian-TTRPG-Community/Town-Forge
+    Ideas (clean-room, no code copied): a "map width represents N real-world
+    units" scale-bar model with nice-number (1/2/5x10^n) tick rounding, and a
+    corner compass rose as map furniture.
 
 * Watabou's TownGeneratorOS (GPLv3)
     https://github.com/watabou/TownGeneratorOS
@@ -49,6 +57,12 @@ copied from them; this NOTICE credits the lineage of the techniques.
     Ideas (clean-room): a percentile/histogram sea level so a target water
     fraction is met, and elevation built from many random "faults" rather than a
     centred radial field.
+
+The tectonic-world engine (src/mapwright/_tectonics.py) is derived from the
+author's own "genmap" experiment: a spherical plate simulation (Fibonacci-sphere
+nodes, warped-Voronoi plates, Euler-pole + Rodrigues plate motion, and boundary
+geomorphology — convergent uplift, subduction, rift spreading). Author's own work;
+reimplemented here numpy-only and seed-deterministic.
 
 The name lists ("namebases") bundled with mapwright are original, hand-authored
 data, not derived from any third-party generator.

@@ -28,6 +28,7 @@ from mapwright import (
     AtlasRenderer,
     DungeonGenerator,
     DungeonSVGRenderer,
+    FeatureGenerator,
     Marker,
     NameGenerator,
     RegionalRoadGenerator,
@@ -39,10 +40,12 @@ from mapwright import (
     SettlementGenerator,
     SettlementSVGRenderer,
     WorldMapConfig,
+    PRESETS,
 )
 
 # Map size / scale tuned for a compact-but-legible gallery thumbnail.
 MAP_W, MAP_H, MAP_SCALE = 64, 44, 9.0
+TWORLD_W, TWORLD_H, TWORLD_SCALE = 132, 74, 4.4  # wide canvas for a whole planet
 DUNGEON_W, DUNGEON_H, DUNGEON_SCALE = 52, 34, 12.0
 TOWN_W, TOWN_H, TOWN_SCALE = 90, 90, 7.0
 PNG_WIDTH = 480  # raster thumbnail width when cairosvg is available
@@ -157,6 +160,37 @@ def render_regions(seed: int = 4) -> str:
     return RegionalSVGRenderer(scale=MAP_SCALE).render(terrain, regions=regions)
 
 
+def render_tectonic_world(seed: int = 7) -> str:
+    """A whole planet whose continents come from simulated plate tectonics —
+    drifted landmasses, island arcs and collision mountain belts, not noise blobs."""
+    rng = SeededRNG(seed)
+    cfg = WorldMapConfig(**PRESETS["world"])
+    terrain = RegionalTerrainGenerator(rng).generate(
+        TWORLD_W, TWORLD_H, cfg, tectonic=True)
+    return RegionalSVGRenderer(scale=TWORLD_SCALE, relief_style="both").render(
+        terrain, scale_bar=True, scale=TWORLD_W, unit="km", compass=True)
+
+
+def render_cartography(seed: int = 7) -> str:
+    """The v0.26 cartography pass together: named features, hachure relief,
+    simulated-annealing labels, a scale bar, and a compass rose."""
+    rng = SeededRNG(seed)
+    terrain = RegionalTerrainGenerator(rng).generate(MAP_W, MAP_H)
+    features = FeatureGenerator(rng).generate(terrain)
+    regions = RegionGenerator(rng).generate(terrain, culture="nordic")
+    namer = NameGenerator(rng.derive("names"))
+    land = [c for c in terrain.cells if not c.is_water]
+    picks = land[:: max(1, len(land) // 6)][:6]
+    kinds = ["settlement_city", "settlement_town", "settlement_village"]
+    markers = [Marker(namer.settlement(), c.cx, c.cy, kinds[i % len(kinds)])
+               for i, c in enumerate(picks)]
+    renderer = RegionalSVGRenderer(scale=MAP_SCALE, relief_style="both", label_seed=seed)
+    return renderer.render(
+        terrain, markers, regions=regions, features=features,
+        smart_labels=True, scale_bar=True, scale=MAP_W, unit="mi", compass=True,
+    )
+
+
 def render_themed(theme: str, seed: int = 7) -> str:
     """The *same* continent (settlements + roads) under a render theme — shows
     that a palette/vocabulary swap restyles existing data with no regeneration."""
@@ -241,6 +275,8 @@ def main() -> None:
     emit("terrain-town", render_terrain_town(seed=5))
     emit("roads", render_roads(seed=7))
     emit("regions", render_regions(seed=4))
+    emit("cartography", render_cartography(seed=7))
+    emit("tectonic-world", render_tectonic_world(seed=7))
     emit("template-isthmus", render_template("isthmus", 0.5, seed=5))
     emit("template-atoll", render_template("atoll", 0.55, seed=8))
     emit("age-young", render_age(0.0, seed=103))

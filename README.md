@@ -43,6 +43,24 @@ The same `theme=` drives the **town and dungeon** renderers too — one skin acr
 </tr>
 </table>
 
+**Tectonic worlds** — pass `tectonic=True` and the base morphology comes from a
+spherical **plate-tectonics** simulation (plates drift, collide into mountain belts,
+subduct and rift) rather than noise. The result is drifted continents, island arcs,
+ragged coasts and collision ranges — a realistic planet, not one rounded blob:
+
+<p align="center">
+<img width="640" src="https://raw.githubusercontent.com/sligara7/mapwright/main/docs/gallery/tectonic-world.png" alt="a whole planet generated from simulated plate tectonics">
+</p>
+
+```python
+from mapwright import SeededRNG, RegionalTerrainGenerator, WorldMapConfig, PRESETS
+cfg = WorldMapConfig(**PRESETS["world"])
+world = RegionalTerrainGenerator(SeededRNG(7)).generate(240, 130, cfg, tectonic=True)
+```
+
+`land_age` sets how far the plates have drifted (young → little, old → much);
+`continents` sets the plate count. numpy-only and seed-deterministic.
+
 Below: deterministic shaded-relief renders of each built-in preset (or a dungeon),
 produced by [`examples/gallery.py`](examples/gallery.py):
 

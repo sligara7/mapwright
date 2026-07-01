@@ -82,12 +82,24 @@ class RegionalSVGRenderer:
     """
 
     def __init__(self, scale: float = 16.0, relief_strength: float = 60.0,
-                 theme: str | Theme = DEFAULT_THEME):
+                 theme: str | Theme = DEFAULT_THEME, *,
+                 relief_style: str = "hillshade",
+                 hachure_density: float = 1.0,
+                 label_seed: int = 0):
         # scale = pixels per tile-unit; relief_strength exaggerates slope so the
         # hillshade reads on gentle terrain (height diffs between cells are tiny,
         # so this needs to be large).
         self.scale = scale
         self.relief_strength = relief_strength
+        # relief_style: "hillshade" (default, per-cell shaded fills) | "hachure"
+        # (pen-and-ink slope strokes, flat fills) | "both" (strokes over shading).
+        if relief_style not in ("hillshade", "hachure", "both"):
+            raise ValueError(f"unknown relief_style {relief_style!r}")
+        self.relief_style = relief_style
+        self.hachure_density = hachure_density
+        # Seed for the (self-seeded) simulated-annealing label placer, so smart
+        # label layout is reproducible without threading the world seed in.
+        self.label_seed = label_seed
         self.theme = get_theme(theme)
         self._biome_rgb = self.theme.biome_rgb()  # tuples, for relief shading
         # Light from the upper-left (classic cartographic convention).
@@ -102,13 +114,24 @@ class RegionalSVGRenderer:
         *,
         roads: Optional[Sequence] = None,
         regions: Optional[Sequence] = None,
+        features: Optional[Sequence] = None,
         show_relief: bool = True,
         show_labels: bool = True,
+        smart_labels: bool = False,
+        scale_bar: bool = False,
+        scale: Optional[float] = None,
+        unit: str = "miles",
+        compass: bool = False,
     ) -> str:
         s = self.scale
         w_px, h_px = terrain.width * s, terrain.height * s
         polys = compute_cell_polygons(terrain.cells, terrain.width, terrain.height)
-        brightness = self._relief(terrain.cells) if show_relief else {}
+        shade = show_relief and self.relief_style in ("hillshade", "both")
+        hachure = show_relief and self.relief_style in ("hachure", "both")
+        brightness = self._relief(terrain.cells) if shade else {}
+        # Inline (fixed-offset) labels are the default; smart placement replaces
+        # them with a single annealed labels layer drawn last (below).
+        inline_labels = show_labels and not smart_labels
 
         parts: list[str] = [
             f'<svg xmlns="http://www.w3.org/2000/svg" width="{w_px:.0f}" '
@@ -129,12 +152,16 @@ class RegionalSVGRenderer:
                          f'stroke-width="0.5"/>')
         parts.append("</g>")
 
+        # 1b. Hachures — pen-and-ink slope strokes (rlguy/Mewo2 technique).
+        if hachure:
+            parts.append(self._hachures_svg(terrain.cells))
+
         # 2. Coastline — edges of land cells that border the sea.
         parts.append(self._coastline_svg(terrain, polys))
 
         # 2b. Region borders — political boundaries between territories.
         if regions:
-            parts.append(self._regions_svg(terrain, polys, regions, show_labels))
+            parts.append(self._regions_svg(terrain, polys, regions, inline_labels))
 
         # 3. Rivers — downhill polylines, width by discharge.
         parts.append(self._rivers_svg(terrain))
@@ -145,7 +172,22 @@ class RegionalSVGRenderer:
 
         # 5. Settlements.
         if markers:
-            parts.append(self._settlements_svg(markers, show_labels))
+            parts.append(self._settlements_svg(markers, inline_labels))
+
+        # 5b. Naive feature labels (only when not using the smart placer).
+        if features and show_labels and not smart_labels:
+            parts.append(self._feature_labels_svg(features))
+
+        # 6. Smart (annealed) labels — one unified, collision-avoiding layer.
+        if show_labels and smart_labels:
+            parts.append(self._smart_labels_svg(
+                terrain, polys, markers, regions, features))
+
+        # 7. Cartographic furniture.
+        if scale_bar:
+            parts.append(self._scale_bar_svg(terrain, w_px, h_px, scale, unit))
+        if compass:
+            parts.append(self._compass_svg(w_px, h_px))
 
         parts.append("</svg>")
         return "".join(parts)
@@ -185,6 +227,219 @@ class RegionalSVGRenderer:
             # neutral and aspect drives the contrast.
             out[c.id] = max(0.66, min(1.28, 1.0 + 1.1 * (shade - lz)))
         return out
+
+    # -- hachures --------------------------------------------------------
+
+    def _hachures_svg(self, cells: list[TerrainCell]) -> str:
+        """One slope-oriented ink stroke per land cell (rlguy ``_getSlopeSegments``).
+
+        Computes its own per-cell gradient (kept separate from ``_relief`` so the
+        hillshade path stays byte-for-byte unchanged). Strokes point down-slope and
+        tilt toward vertical as the slope steepens; length grows with slope too.
+        """
+        s = self.scale
+        rs = self.relief_strength
+        density = self.hachure_density
+        min_s, max_s = 0.05, 0.8         # slope magnitudes that map to the tilt range
+        min_a, max_a = 0.2, 1.3          # tick angle (radians): near-flat .. steep
+        segs: list[str] = []
+        for c in cells:
+            if c.is_water or c.is_lake:
+                continue
+            gx = gy = 0.0
+            count = 0
+            for nid in c.neighbors:
+                n = cells[nid]
+                dx, dy = n.cx - c.cx, n.cy - c.cy
+                d2 = dx * dx + dy * dy
+                if d2 <= 0:
+                    continue
+                dh = (n.height - c.height) * rs
+                gx += dh * dx / d2
+                gy += dh * dy / d2
+                count += 1
+            if count:
+                gx /= count
+                gy /= count
+            mag = math.hypot(gx, gy)
+            if mag < min_s:
+                continue  # too flat to hachure
+            factor = max(0.0, min(1.0, (mag - min_s) / (max_s - min_s)))
+            angle = min_a + factor * (max_a - min_a)
+            if gx > 0:  # sign of the horizontal slope flips the tilt (mirror rlguy)
+                angle = -angle
+            length = (0.75 + factor * 0.55) * s * 0.5 * density
+            cx, cy = c.cx * s, c.cy * s
+            ex = cx + math.cos(angle) * length
+            ey = cy + math.sin(angle) * length
+            segs.append(f'M{cx:.1f},{cy:.1f} L{ex:.1f},{ey:.1f}')
+        if not segs:
+            return ""
+        return (f'<path d="{" ".join(segs)}" fill="none" stroke="{self.theme.coastline}" '
+                f'stroke-width="0.8" stroke-linecap="round" opacity="0.5"/>')
+
+    # -- labels (feature + smart placement) ------------------------------
+
+    _FEATURE_FONT = {"ocean": 14, "lake": 10, "island": 12, "range": 11, "forest": 11}
+
+    def _feature_labels_svg(self, features: Sequence) -> str:
+        """Naive feature labels at centroids (used when smart placement is off)."""
+        s = self.scale
+        out = ['<g font-family="Georgia, serif" text-anchor="middle" '
+               'font-style="italic">']
+        for f in features:
+            fs = self._FEATURE_FONT.get(f.kind, 11)
+            cx, cy = f.centroid[0] * s, f.centroid[1] * s
+            out.append(
+                f'<text x="{cx:.1f}" y="{cy:.1f}" font-size="{fs}" '
+                f'stroke="{self.theme.label_halo}" stroke-width="3" paint-order="stroke" '
+                f'fill="{self.theme.label_fill}">{su.escape(f.name)}</text>'
+            )
+        out.append("</g>")
+        return "".join(out)
+
+    def _smart_labels_svg(self, terrain, polys, markers, regions, features) -> str:
+        """Place all labels at once with the simulated-annealing placer."""
+        from .labeling import LabelPlacer, LabelRequest
+
+        s = self.scale
+        cells = terrain.cells
+        requests: list = []
+        styles: list[tuple[str, bool]] = []  # (fill colour, italic)
+
+        if markers:
+            for m in markers:
+                if not m.name:
+                    continue
+                r = _SETTLEMENT_RADIUS.get(m.kind, 3.0)
+                fs = 11 if "city" in m.kind else 9
+                requests.append(LabelRequest(m.name, (m.x * s, m.y * s), "marker",
+                                             font_size=fs, marker_radius=r))
+                styles.append((self.theme.label_fill, False))
+        if regions:
+            for rg in regions:
+                cap = cells[rg.capital]
+                requests.append(LabelRequest(rg.name, (cap.cx * s, cap.cy * s),
+                                             "area", font_size=12))
+                styles.append((self.theme.region_label, True))
+        if features:
+            for f in features:
+                fs = self._FEATURE_FONT.get(f.kind, 11)
+                requests.append(LabelRequest(f.name, (f.centroid[0] * s, f.centroid[1] * s),
+                                             "area", font_size=fs))
+                styles.append((self.theme.label_fill, True))
+
+        if not requests:
+            return ""
+
+        avoid = self._label_avoid_points(terrain, polys, regions)
+        w_px, h_px = terrain.width * s, terrain.height * s
+        placed = LabelPlacer(self.label_seed, avoid_points=avoid,
+                             bounds=(w_px, h_px)).place(requests)
+
+        out = ['<g font-family="Georgia, serif">']
+        for (fill, italic), p in zip(styles, placed):
+            style = ' font-style="italic"' if italic else ""
+            out.append(
+                f'<text x="{p.x:.1f}" y="{p.y:.1f}" font-size="{p.font_size:.0f}" '
+                f'text-anchor="{p.anchor}"{style} '
+                f'stroke="{self.theme.label_halo}" stroke-width="3" paint-order="stroke" '
+                f'fill="{fill}">{su.escape(p.text)}</text>'
+            )
+        out.append("</g>")
+        return "".join(out)
+
+    def _label_avoid_points(self, terrain, polys, regions) -> list:
+        """Busy line-work the placer should avoid: river + coastline + border points."""
+        s = self.scale
+        cells = terrain.cells
+        pts: list[tuple[float, float]] = []
+        for river in terrain.rivers:
+            for cid in river.cells:
+                pts.append((cells[cid].cx * s, cells[cid].cy * s))
+        # Coastline vertices (land cells bordering water) sampled from polygons.
+        for c in cells:
+            if c.is_water:
+                continue
+            if any(cells[n].is_water for n in c.neighbors):
+                poly = polys.get(c.id)
+                if poly:
+                    for x, y in poly:
+                        pts.append((x * s, y * s))
+        return pts
+
+    # -- cartographic furniture ------------------------------------------
+
+    @staticmethod
+    def _nice_round(x: float) -> float:
+        """Round to a 'nice' 1/2/5×10ⁿ number for scale-bar ticks."""
+        if x <= 0:
+            return 1.0
+        exp = math.floor(math.log10(x))
+        base = 10 ** exp
+        f = x / base
+        nice = 1 if f < 1.5 else 2 if f < 3.5 else 5 if f < 7.5 else 10
+        return nice * base
+
+    def _scale_bar_svg(self, terrain, w_px, h_px, scale, unit) -> str:
+        """A 4-segment alternating scale bar, bottom-left (Town-Forge idea).
+
+        ``scale`` = real-world distance spanned by the full map width (defaults to
+        the map's tile width, i.e. one unit per tile). No georeferencing needed.
+        """
+        map_dist = float(scale) if scale else float(terrain.width)
+        if map_dist <= 0 or w_px <= 0:
+            return ""
+        dist_per_px = map_dist / w_px
+        target_px = 0.18 * w_px
+        nice = self._nice_round(target_px * dist_per_px)
+        bar_px = nice / dist_per_px
+        seg = bar_px / 4.0
+        x0 = 0.04 * w_px
+        y0 = h_px - 0.06 * h_px
+        ink = self.theme.coastline
+        bg = self.theme.label_halo
+        parts = [f'<g font-family="Georgia, serif" font-size="9" '
+                 f'fill="{ink}" text-anchor="middle">']
+        # Alternating black/white segments.
+        for i in range(4):
+            fill = ink if i % 2 == 0 else bg
+            parts.append(
+                f'<rect x="{x0 + i * seg:.1f}" y="{y0:.1f}" width="{seg:.1f}" '
+                f'height="4" fill="{fill}" stroke="{ink}" stroke-width="0.6"/>'
+            )
+
+        def fmt(v: float) -> str:
+            return f"{v:.0f}" if v >= 10 or v == int(v) else f"{v:.1f}"
+
+        for i, v in ((0, 0.0), (2, nice / 2), (4, nice)):
+            label = f"{fmt(v)} {unit}" if i == 4 else fmt(v)
+            parts.append(f'<text x="{x0 + i * seg:.1f}" y="{y0 - 3:.1f}"'
+                         f' stroke="{bg}" stroke-width="2.5" paint-order="stroke">'
+                         f'{su.escape(label)}</text>')
+        parts.append("</g>")
+        return "".join(parts)
+
+    def _compass_svg(self, w_px, h_px) -> str:
+        """A small two-tone compass rose (N pointer) in the top-right corner."""
+        r = max(14.0, 0.035 * min(w_px, h_px))
+        cx = w_px - r - 0.03 * w_px
+        cy = r + 0.03 * h_px
+        ink = self.theme.coastline
+        bg = self.theme.label_halo
+        return (
+            f'<g stroke="{ink}" stroke-width="1">'
+            f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{r:.1f}" fill="{bg}" '
+            f'opacity="0.85"/>'
+            # North needle: dark east half, light west half.
+            f'<polygon points="{cx:.1f},{cy - r * 0.8:.1f} {cx + r * 0.22:.1f},{cy:.1f} '
+            f'{cx:.1f},{cy + r * 0.5:.1f}" fill="{ink}"/>'
+            f'<polygon points="{cx:.1f},{cy - r * 0.8:.1f} {cx - r * 0.22:.1f},{cy:.1f} '
+            f'{cx:.1f},{cy + r * 0.5:.1f}" fill="{bg}"/>'
+            f'<text x="{cx:.1f}" y="{cy - r - 2:.1f}" font-family="Georgia, serif" '
+            f'font-size="10" text-anchor="middle" stroke="none" fill="{ink}">N</text>'
+            "</g>"
+        )
 
     # -- coastline -------------------------------------------------------
 

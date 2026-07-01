@@ -32,8 +32,14 @@ EXPECTED_PUBLIC = {
     "RegionalTerrainGenerator",
     "TERRAIN_TEMPLATES",
     "compute_cell_polygons",
+    "simulate_tectonic_world",
     "Marker",
     "RegionalSVGRenderer",
+    "Feature",
+    "FeatureGenerator",
+    "LabelPlacer",
+    "LabelRequest",
+    "PlacedLabel",
     "Theme",
     "THEMES",
     "ArtPack",
@@ -81,6 +87,10 @@ EXPECTED_FIELDS = {
     "TerrainResult": ("width", "height", "cells", "cell_of", "rivers",
                       "sea_level"),
     "Marker": ("name", "x", "y", "kind"),
+    "Feature": ("id", "kind", "name", "cells", "centroid", "area"),
+    "LabelRequest": ("text", "anchor", "kind", "priority", "font_size",
+                     "marker_radius"),
+    "PlacedLabel": ("text", "x", "y", "font_size", "anchor"),
     "Theme": ("name", "biomes", "ocean_bg", "coastline", "river", "road",
               "road_casing", "region_border", "region_label", "settlement_fill",
               "settlement_stroke", "label_fill", "label_halo", "biome_names",
@@ -259,7 +269,7 @@ class TestToDictSchema:
         from mapwright import (
             SeededRNG, RegionalTerrainGenerator, DungeonGenerator, DungeonConfig,
             SettlementGenerator, SettlementConfig, Marker, River, Road, Region,
-            Landmark,
+            Landmark, Feature,
         )
         terrain = RegionalTerrainGenerator(SeededRNG(7)).generate(60, 45)
         dungeon = DungeonGenerator(SeededRNG(7)).generate(48, 40, DungeonConfig())
@@ -278,6 +288,8 @@ class TestToDictSchema:
             "Rect": dungeon.rooms[0],
             "Road": Road([0, 1]),
             "Region": Region(id=0, name="R", capital=5, cells=[1, 2, 3]),
+            "Feature": Feature(id=0, kind="ocean", name="The Sea", cells=[1, 2],
+                               centroid=(1.0, 2.0), area=2.0),
             "Settlement": town,
             "Ward": town.wards[0],
             "Lot": town.lots[0],

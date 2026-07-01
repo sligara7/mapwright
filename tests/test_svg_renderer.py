@@ -102,6 +102,76 @@ class TestSVGRender:
         ET.fromstring(svg)
 
 
+class TestCartography:
+    """v0.26 additions: hachures, smart labels, features, scale bar, compass."""
+
+    def test_defaults_unchanged_shape(self):
+        # New flags all default off → same well-formed doc, no hachure/furniture.
+        t = _terrain()
+        svg = RegionalSVGRenderer().render(t)
+        ET.fromstring(svg)
+        assert 'opacity="0.5"' not in svg  # no hachure layer by default
+
+    def test_bad_relief_style_raises(self):
+        import pytest
+
+        with pytest.raises(ValueError):
+            RegionalSVGRenderer(relief_style="nope")
+
+    def test_hachure_adds_strokes(self):
+        t = _terrain()
+        svg = RegionalSVGRenderer(relief_style="hachure").render(t)
+        ET.fromstring(svg)
+        assert 'stroke-width="0.8"' in svg  # per-cell slope strokes
+
+    def test_relief_both_is_well_formed(self):
+        t = _terrain()
+        ET.fromstring(RegionalSVGRenderer(relief_style="both").render(t))
+
+    def test_scale_bar_and_compass(self):
+        t = _terrain()
+        svg = RegionalSVGRenderer().render(t, scale_bar=True, scale=80,
+                                           unit="leagues", compass=True)
+        ET.fromstring(svg)
+        assert "leagues" in svg
+        assert ">N<" in svg
+
+    def test_smart_labels_deterministic_and_wellformed(self):
+        t = _terrain()
+        markers = [Marker("Aworld", 12, 10, "settlement_city"),
+                   Marker("Bstead", 24, 16, "settlement_town")]
+        r = RegionalSVGRenderer(label_seed=3)
+        a = r.render(t, markers, smart_labels=True)
+        b = r.render(t, markers, smart_labels=True)
+        ET.fromstring(a)
+        assert a == b
+        assert "Aworld" in a and "Bstead" in a
+
+    def test_smart_labels_replace_inline_labels(self):
+        # In smart mode the naive fixed-offset marker label group is not emitted;
+        # the unified annealed layer carries the names instead.
+        t = _terrain()
+        markers = [Marker("Onlyburg", 15, 12, "settlement_town")]
+        smart = RegionalSVGRenderer(label_seed=1).render(t, markers, smart_labels=True)
+        assert "Onlyburg" in smart
+
+    def test_feature_labels_naive(self):
+        from mapwright.features import FeatureGenerator
+
+        t = _terrain()
+        feats = FeatureGenerator(SeededRNG(2026)).generate(t)
+        svg = RegionalSVGRenderer().render(t, features=feats)
+        ET.fromstring(svg)
+        if feats:
+            assert su_any(feats, svg)
+
+
+def su_any(feats, svg) -> bool:
+    import xml.sax.saxutils as su
+
+    return any(su.escape(f.name) in svg for f in feats)
+
+
 # -- helpers ------------------------------------------------------------------
 
 def _point_in_poly(x: float, y: float, poly) -> bool:

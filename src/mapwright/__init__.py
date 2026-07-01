@@ -33,6 +33,8 @@ from .atlas_renderer import ArtPack, AtlasRenderer
 from .config import WorldMapConfig, PRESETS
 from .dungeon import Dungeon, DungeonConfig, DungeonGenerator, Rect
 from .dungeon_renderer import DungeonSVGRenderer
+from .features import Feature, FeatureGenerator
+from .labeling import LabelPlacer, LabelRequest, PlacedLabel
 from .names import NameGenerator, MarkovNameGenerator, NAMEBASES
 from .regions import Region, RegionGenerator
 from .rng import SeededRNG
@@ -52,6 +54,7 @@ from .settlement import (
 )
 from .settlement_renderer import SettlementSVGRenderer
 from .svg_renderer import Marker, RegionalSVGRenderer
+from ._tectonics import simulate_tectonic_world
 from .themes import THEMES, Theme
 from .terrain import (
     Biome,
@@ -63,7 +66,7 @@ from .terrain import (
     compute_cell_polygons,
 )
 
-__version__ = "0.25.0"
+__version__ = "0.27.0"
 
 __all__ = [
     "SeededRNG",
@@ -82,8 +85,14 @@ __all__ = [
     "RegionalTerrainGenerator",
     "TERRAIN_TEMPLATES",
     "compute_cell_polygons",
+    "simulate_tectonic_world",
     "Marker",
     "RegionalSVGRenderer",
+    "Feature",
+    "FeatureGenerator",
+    "LabelPlacer",
+    "LabelRequest",
+    "PlacedLabel",
     "Theme",
     "THEMES",
     "ArtPack",
