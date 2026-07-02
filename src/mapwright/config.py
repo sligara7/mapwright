@@ -65,6 +65,10 @@ _SPEC: list[tuple] = [
      "Strength of the equator→pole temperature gradient. 0 = no cold caps "
      "(uniformly warm); 1 = strong polar ice caps with snow near the top/bottom "
      "edges. Latitude (north/south) sets where the cold is; this sets how much."),
+    ("forest_age", float, 0.0, 1.0,
+     "Woodland maturity: 0 = young regrowth (paler, sparse canopy); 1 = old-"
+     "growth (darker, dense). Central tendency; a map shows a mix of stands. "
+     "0.5 = neutral (rendering unchanged)."),
 ]
 
 
@@ -107,6 +111,11 @@ class WorldMapConfig:
     """0 ⇒ no polar chill (uniformly warm) .. 1 ⇒ strong cold ice caps at the
     poles. Latitude sets *where* the cold falls (top/bottom edges); this knob
     sets *how strong* the equator→pole gradient is."""
+
+    forest_age: float = 0.5
+    """0 (young regrowth: paler, sparse) .. 1 (old-growth: darker, dense) — the
+    central maturity of woodland. Sets each forest cell's ``forest_age``; a single
+    map still shows a mix of stands. 0.5 ⇒ neutral (rendering byte-identical)."""
 
     def __post_init__(self) -> None:
         # Coerce then clamp every field, so out-of-range OR wrong-typed inputs

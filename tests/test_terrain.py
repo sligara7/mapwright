@@ -183,6 +183,48 @@ class TestLandAge:
         assert a == b
 
 
+class TestForestAge:
+    def _forest_ages(self, age, seed=7):
+        from mapwright.terrain import Biome
+        t = _gen(seed, 80, 58, config=WorldMapConfig(forest_age=age, moisture=0.4))
+        return [c.forest_age for c in t.cells if c.biome == Biome.FOREST]
+
+    def test_default_is_neutral_uniform(self):
+        # forest_age 0.5 ⇒ every forest cell exactly 0.5 (rendering byte-identical).
+        ages = self._forest_ages(0.5)
+        assert ages and all(a == 0.5 for a in ages)
+
+    def test_terrain_unaffected_by_forest_age(self):
+        # It only tints forests — heights/biomes are identical to the default world.
+        base = _gen(7, 80, 58, config=WorldMapConfig(moisture=0.4))
+        old = _gen(7, 80, 58, config=WorldMapConfig(moisture=0.4, forest_age=1.0))
+        assert [c.height for c in base.cells] == [c.height for c in old.cells]
+        assert [c.biome for c in base.cells] == [c.biome for c in old.cells]
+
+    def test_old_growth_skews_older_than_regrowth(self):
+        young = self._forest_ages(0.0)
+        old = self._forest_ages(1.0)
+        assert young and old
+        assert sum(young) / len(young) < sum(old) / len(old)
+
+    def test_values_stay_in_range(self):
+        for age in (0.0, 0.3, 1.0):
+            assert all(0.0 <= a <= 1.0 for a in self._forest_ages(age))
+
+    def test_deterministic(self):
+        cfg = WorldMapConfig(forest_age=0.9, moisture=0.4)
+        a = [c.forest_age for c in _gen(4, 80, 58, config=cfg).cells]
+        b = [c.forest_age for c in _gen(4, 80, 58, config=cfg).cells]
+        assert a == b
+
+    def test_render_changes_with_forest_age(self):
+        from mapwright.svg_renderer import RegionalSVGRenderer
+        base = _gen(7, 80, 58, config=WorldMapConfig(moisture=0.4))
+        old = _gen(7, 80, 58, config=WorldMapConfig(moisture=0.4, forest_age=1.0))
+        r = RegionalSVGRenderer()
+        assert r.render(base) != r.render(old)   # old-growth darkens forest fills
+
+
 class TestTemplates:
     def test_registry_nonempty(self):
         from mapwright.terrain import TERRAIN_TEMPLATES

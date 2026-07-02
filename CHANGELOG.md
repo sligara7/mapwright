@@ -8,6 +8,28 @@ All notable changes to mapwright are documented here. The format follows
 `tests/test_api_contract.py`). While the version is `0.x`, minor versions may
 make breaking changes; these will always be noted here.
 
+## [0.28.0] — 2026-07-01
+
+Additive, non-breaking. A **forest-age** knob in the age/era vein (after
+`land_age`): woodland maturity, from young regrowth to old-growth.
+
+### Added
+- **`WorldMapConfig.forest_age`** (0 = young regrowth, paler/sparse; 1 = old-
+  growth, darker/dense; default 0.5 = neutral). Sets a per-cell **`forest_age`**
+  on `TerrainCell` (also new) for every `FOREST` cell: the config value is the
+  central tendency and a smooth low-frequency field scatters stands of old-growth
+  and regrowth around it, so a single map shows a mix. `RegionalSVGRenderer` shades
+  forest fills by cell maturity (old-growth darker, regrowth lighter).
+  - The noise is drawn from an isolated RNG sub-stream, so it never perturbs the
+    heightmap/hydrology; terrain heights and biomes are identical regardless of
+    `forest_age`. At the neutral 0.5 every forest cell is exactly 0.5 and rendering
+    is **byte-identical** — the feature is purely opt-in.
+
+### Changed
+- `TerrainResult` serialisation is now `mapwright/terrain@3` (adds per-cell
+  `forest_age`). Back-compatible: older `@2` payloads load with `forest_age`
+  defaulting to the neutral 0.5.
+
 ## [0.27.1] — 2026-07-01
 
 Bug fixes, cleanup, and a byte-identical performance win from a full-codebase

@@ -92,6 +92,7 @@ class TerrainCell:
     temperature: float = 0.5     # 0 (frozen) .. 1 (hot)
     moisture: float = 0.5        # 0 (arid) .. 1 (wet)
     biome: Biome = Biome.PLAINS
+    forest_age: float = 0.5      # 0 (young regrowth) .. 1 (old-growth); FOREST cells
 
     def to_dict(self) -> dict:
         """JSON-safe mapping (``biome`` as its int value)."""
@@ -147,7 +148,7 @@ class TerrainResult:
         saved world reloads bit-identical (and renders identically).
         """
         return {
-            "schema": "mapwright/terrain@2",
+            "schema": "mapwright/terrain@3",
             "width": self.width,
             "height": self.height,
             "sea_level": self.sea_level,
@@ -311,6 +312,7 @@ class RegionalTerrainGenerator:
         rivers = self._trace_rivers(cells, cfg.river_density)
         self._compute_climate(cells, width, height, sea_level, cfg)
         self._assign_biomes(cells, sea_level)
+        self._assign_forest_age(cells, width, height, cfg)
 
         return TerrainResult(
             width=width,
@@ -335,10 +337,12 @@ class RegionalTerrainGenerator:
 
     # -- noise helpers (organic coastlines) ------------------------------
 
-    def _value_noise(self, centroids: np.ndarray, width: int, height: int, res: int) -> np.ndarray:
+    def _value_noise(self, centroids: np.ndarray, width: int, height: int, res: int,
+                     rng_np=None) -> np.ndarray:
         """Smooth value noise in [0,1): a ``res×res`` random lattice (seeded),
-        smoothstep-interpolated at each centroid."""
-        lattice = self._np.random((res + 1, res + 1))
+        smoothstep-interpolated at each centroid. ``rng_np`` overrides the lattice
+        source (default = the shared terrain stream)."""
+        lattice = (rng_np or self._np).random((res + 1, res + 1))
         u = np.clip(centroids[:, 0] / max(1, width), 0, 1) * res
         v = np.clip(centroids[:, 1] / max(1, height), 0, 1) * res
         x0 = np.floor(u).astype(int)
@@ -353,12 +357,13 @@ class RegionalTerrainGenerator:
         return top * (1 - sy) + bot * sy
 
     def _fbm(self, centroids: np.ndarray, width: int, height: int,
-             octaves: int = 5, base_res: int = 3) -> np.ndarray:
-        """Fractal (summed-octave) value noise in [0,1)."""
+             octaves: int = 5, base_res: int = 3, rng_np=None) -> np.ndarray:
+        """Fractal (summed-octave) value noise in [0,1). ``rng_np`` overrides the
+        lattice source (default = the shared terrain stream)."""
         total = np.zeros(len(centroids))
         amp, norm, res = 1.0, 0.0, base_res
         for _ in range(octaves):
-            total += amp * self._value_noise(centroids, width, height, res)
+            total += amp * self._value_noise(centroids, width, height, res, rng_np)
             norm += amp
             amp *= 0.5
             res *= 2
@@ -1175,6 +1180,33 @@ class RegionalTerrainGenerator:
         if m < 0.33:
             return Biome.PLAINS
         return Biome.FOREST if m > 0.5 else Biome.PLAINS
+
+    def _assign_forest_age(self, cells: list[TerrainCell], width: int, height: int,
+                           cfg: WorldMapConfig) -> None:
+        """Set ``forest_age`` (0 young regrowth .. 1 old-growth) on FOREST cells.
+
+        ``cfg.forest_age`` is the central tendency; a smooth low-frequency noise
+        field scatters stands of old-growth and regrowth around it, so one map
+        shows a mix. The spatial spread scales with distance from the neutral 0.5,
+        so ``forest_age == 0.5`` leaves every forest cell at exactly 0.5 (the field
+        default) → byte-identical rendering. The noise comes from an isolated RNG
+        sub-stream, so it never perturbs the terrain heightmap/hydrology streams.
+        """
+        bias = cfg.forest_age
+        spread = abs(bias - 0.5) * 2.0            # 0 at neutral, 1 at the extremes
+        forest = [c for c in cells if c.biome == Biome.FOREST]
+        if not forest or spread <= 0.0:
+            for c in forest:
+                c.forest_age = 0.5                # neutral: exact field default
+            return
+        centroids = np.array([[c.cx, c.cy] for c in forest], dtype=float)
+        # Centred low-frequency field in [-0.5, 0.5), scaled by spread so the
+        # deviation from `bias` vanishes as forest_age → 0.5.
+        field = self._fbm(centroids, width, height, octaves=4, base_res=2,
+                          rng_np=self._rng.derive("forest").numpy) - 0.5
+        ages = np.clip(bias + field * spread, 0.0, 1.0)
+        for c, a in zip(forest, ages):
+            c.forest_age = float(a)
 
 
 # ---------------------------------------------------------------------------

@@ -20,7 +20,7 @@ from dataclasses import asdict, dataclass
 from typing import Optional, Sequence
 
 from . import _serde
-from .terrain import TerrainCell, TerrainResult, compute_cell_polygons
+from .terrain import Biome, TerrainCell, TerrainResult, compute_cell_polygons
 from .themes import DEFAULT_THEME, Theme, get_theme
 
 
@@ -145,7 +145,12 @@ class RegionalSVGRenderer:
             poly = polys.get(cell.id)
             if not poly or len(poly) < 3:
                 continue
-            fill = _shade(self._biome_rgb[cell.biome], brightness.get(cell.id, 1.0))
+            shade_f = brightness.get(cell.id, 1.0)
+            if cell.biome is Biome.FOREST:
+                # Woodland maturity: old-growth (age→1) darkens, young regrowth
+                # (age→0) lightens; 0.5 ⇒ ×1.0 (byte-identical default).
+                shade_f *= 1.0 + (0.5 - cell.forest_age) * 0.5
+            fill = _shade(self._biome_rgb[cell.biome], shade_f)
             pts = " ".join(f"{x * s:.1f},{y * s:.1f}" for x, y in poly)
             # A hairline stroke in the fill colour hides seams between cells.
             parts.append(f'<polygon points="{pts}" fill="{fill}" stroke="{fill}" '

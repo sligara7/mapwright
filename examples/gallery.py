@@ -75,6 +75,13 @@ def render_age(land_age: float, seed: int) -> str:
     return RegionalSVGRenderer(scale=MAP_SCALE).render(t)
 
 
+def render_forest_age(forest_age: float, seed: int) -> str:
+    """Same wooded continent, different woodland maturity (regrowth vs old-growth)."""
+    cfg = WorldMapConfig(moisture=0.55, forest_age=forest_age)
+    t = RegionalTerrainGenerator(SeededRNG(seed)).generate(MAP_W, MAP_H, config=cfg)
+    return RegionalSVGRenderer(scale=MAP_SCALE).render(t)
+
+
 # A coarse 8×8 "painted" land/elevation mask (0 = sea … 1 = high) — the kind of
 # hint a host or LLM hands mapwright to art-direct the continent's macro shape.
 _HINT_MASK = [
@@ -281,6 +288,8 @@ def main() -> None:
     emit("template-atoll", render_template("atoll", 0.55, seed=8))
     emit("age-young", render_age(0.0, seed=103))
     emit("age-old", render_age(1.0, seed=103))
+    emit("forest-young", render_forest_age(0.0, seed=104))
+    emit("forest-old", render_forest_age(1.0, seed=104))
     emit("hint", render_hint(seed=11))
     emit("theme-parchment", render_themed("parchment"))
     emit("theme-neon", render_themed("neon"))

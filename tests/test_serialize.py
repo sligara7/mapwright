@@ -42,6 +42,7 @@ def _assert_cells_equal(a: TerrainCell, b: TerrainCell):
     assert a.moisture == b.moisture
     assert a.biome == b.biome
     assert isinstance(b.biome, type(a.biome))
+    assert a.forest_age == b.forest_age
 
 
 def _assert_terrain_equal(a: TerrainResult, b: TerrainResult):
@@ -70,7 +71,7 @@ class TestTerrainRoundTrip:
         json.dumps(_terrain().to_dict())
 
     def test_schema_tag_present(self):
-        assert _terrain().to_dict()["schema"] == "mapwright/terrain@2"
+        assert _terrain().to_dict()["schema"] == "mapwright/terrain@3"
 
     def test_reload_renders_identically(self):
         # The real guarantee: a reloaded world produces byte-identical SVG.
