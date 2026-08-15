@@ -34,7 +34,11 @@ dependencies = ["numpy>=1.26"]
 # Atlas (hand-drawn / themed) rendering stamps PNG symbols → needs Pillow. The
 # core stays numpy-only; install this extra for AtlasRenderer.
 atlas = ["pillow>=10"]
-dev = ["pytest>=7.4", "ruff>=0.1", "hypothesis>=6", "pillow>=10"]
+# tomli is the 3.10 backport of stdlib tomllib (3.11+). tests/test_packaging_contract.py
+# reads pyproject.toml to assert the numpy-only rule; without it the check would skip on
+# 3.10 — the lowest version we claim to support, so the one where an unguarded gate
+# matters most. A check that cannot fail on a supported interpreter is not a gate.
+dev = ["pytest>=7.4", "ruff>=0.1", "hypothesis>=6", "pillow>=10", "tomli>=2.0; python_version<'3.11'"]
 
 [project.urls]
 Homepage = "https://github.com/sligara7/mapwright"
