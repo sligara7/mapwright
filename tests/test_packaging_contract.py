@@ -68,6 +68,9 @@ class TestNumpyOnly:
 
     def test_core_imports_without_the_optional_extra(self):
         """The rule's real consequence: `pip install mapwright` must work bare."""
-        import mapwright  # noqa: F401  - the import IS the assertion
+        # The import itself is half the assertion: it must succeed with only numpy
+        # installed. The __all__ read is the other half, and it also means the name
+        # is genuinely used - so no `noqa` is warranted here.
+        import mapwright
 
         assert mapwright.__all__, "the package imported but exports nothing"
