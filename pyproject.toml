@@ -34,11 +34,27 @@ dependencies = ["numpy>=1.26"]
 # Atlas (hand-drawn / themed) rendering stamps PNG symbols → needs Pillow. The
 # core stays numpy-only; install this extra for AtlasRenderer.
 atlas = ["pillow>=10"]
-# tomli is the 3.10 backport of stdlib tomllib (3.11+). tests/test_packaging_contract.py
-# reads pyproject.toml to assert the numpy-only rule; without it the check would skip on
-# 3.10 — the lowest version we claim to support, so the one where an unguarded gate
-# matters most. A check that cannot fail on a supported interpreter is not a gate.
-dev = ["pytest>=7.4", "ruff>=0.1", "hypothesis>=6", "pillow>=10", "tomli>=2.0; python_version<'3.11'"]
+# ruff is bounded on BOTH sides on purpose, and mapwright learned this the expensive
+# way by NOT doing it. CI installs this extra fresh on every run, so the open-ended
+# `ruff>=0.1` that used to sit here meant the lint gate silently adopted whatever ruff
+# shipped that morning. On 2026-08-15 it did: main went red across all four interpreters
+# with 121 findings — 72 UP, 19 RUF, 6 I, 4 PL — in files nobody had touched, because a
+# newer ruff widened its DEFAULT rule set. dndwright hit this first (0.16.0), wrote the
+# rule, and pinned; mapwright had not adopted it. The floor is 0.5 because the rule set
+# below uses the `[tool.ruff.lint]` table; the ceiling keeps a new minor from moving the
+# gate again without a commit saying so.
+dev = [
+    "pytest>=7.4",
+    "ruff>=0.5,<0.17",
+    "hypothesis>=6",
+    "pillow>=10",
+    # tomli is the 3.10 backport of stdlib tomllib (3.11+). tests/test_packaging_contract.py
+    # reads pyproject.toml to assert the numpy-only and lint-gate rules; without it the check
+    # would skip on 3.10 — the lowest version we claim to support, so the one where an
+    # unguarded gate matters most. A check that cannot fail on a supported interpreter is
+    # not a gate.
+    "tomli>=2.0; python_version<'3.11'",
+]
 
 [project.urls]
 Homepage = "https://github.com/sligara7/mapwright"
@@ -53,3 +69,19 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+
+[tool.ruff.lint]
+# State the enforced rule set EXPLICITLY rather than inheriting ruff's defaults.
+# Inheriting means the gate's meaning is a property of whichever ruff CI happened to
+# install, so a release that widens the defaults retroactively fails commits that were
+# green when written — with findings in files the change never touched. That is not a
+# hypothetical here: it is what put main red on 2026-08-15.
+#
+# These four are what this project has actually been enforcing (ruff's historical
+# default): pyflakes plus the pycodestyle errors that catch real mistakes.
+#
+# Adopting the wider families (import sorting `I`, `RUF`, `SIM`, `UP`) is a deliberate
+# choice to make on its own, with the resulting fixes in their own commit — not a side
+# effect of a dependency resolving forward. See the follow-up commit that does exactly
+# that, deliberately, on top of this pin.
+select = ["E4", "E7", "E9", "F"]

@@ -1,12 +1,18 @@
-"""Executable check for the numpy-only rule.
+"""Executable checks for the packaging rules this project has adopted.
 
-ROADMAP states it plainly - "Single runtime dep: numpy. Keep it that way." - and until
-now nothing enforced it. It is recorded as a DesignRule in the project's reflow2 design,
-marked gate-blocking, and detected here.
+Both were stated in ROADMAP and enforced by nothing. They are now recorded as
+gate-blocking DesignRules in the project's reflow2 design, and detected here.
 
-The rule has two halves and both are checked: the core declares exactly numpy, AND
-Pillow stays isolated in the `atlas` extra. The second half is the one that rots
-quietly, because adding Pillow to the core would make every atlas test pass.
+  * numpy-only - ROADMAP states it plainly: "Single runtime dep: numpy. Keep it that
+    way." The rule has two halves and both are checked: the core declares exactly numpy,
+    AND Pillow stays isolated in the `atlas` extra. The second half is the one that rots
+    quietly, because adding Pillow to the core would leave every atlas test passing.
+
+  * the lint gate states its own rule set - adopted 2026-08-15 AFTER it cost us: `ruff`
+    was declared open-ended as `ruff>=0.1` with no `[tool.ruff.lint]` table, so CI
+    resolved forward to a ruff whose wider DEFAULTS put main red on all four
+    interpreters with 121 findings in files nobody had touched. dndwright hit the same
+    thing first and pinned; mapwright had not adopted the rule. Now it has.
 """
 
 import re
@@ -74,3 +80,36 @@ class TestNumpyOnly:
         import mapwright
 
         assert mapwright.__all__, "the package imported but exports nothing"
+
+
+class TestLintGateStatesItsOwnRules:
+    """Adopted 2026-08-15, after an open-ended ruff spec put main red.
+
+    Mirrors dndwright's rule of the same name. Both halves matter and the second is
+    the one that actually bit: a `select` list alone does not help if the linter that
+    reads it can be replaced by a newer one on the next CI run.
+    """
+
+    def test_ruleset_is_stated_explicitly(self):
+        select = _config().get("tool", {}).get("ruff", {}).get("lint", {}).get("select")
+        assert select, (
+            "[tool.ruff.lint] select is missing or empty, so the gate inherits ruff's "
+            "DEFAULTS. That is exactly what put main red on 2026-08-15: a newer ruff "
+            "widened them and 121 findings appeared in untouched files. State the rule "
+            "set explicitly."
+        )
+
+    def test_ruff_is_pinned_on_both_sides(self):
+        dev = _config()["project"]["optional-dependencies"]["dev"]
+        ruff = next((r for r in dev if _dist_name(r) == "ruff"), None)
+        assert ruff is not None, "ruff is not declared in the dev extra"
+        assert "<" in ruff, (
+            f"ruff is not bounded above ({ruff!r}). CI installs this extra fresh on "
+            f"every run, so an open-ended spec adopts whatever ruff shipped that "
+            f"morning and the gate's meaning changes without a commit. This is the "
+            f"exact defect that put main red on 2026-08-15."
+        )
+        assert ">" in ruff or "==" in ruff, (
+            f"ruff has no lower bound ({ruff!r}); the explicit rule set needs the "
+            f"[tool.ruff.lint] table, which older ruff does not read."
+        )
