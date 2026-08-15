@@ -6,6 +6,8 @@ geometry primitives stay well-formed, the graph routines stay structurally
 valid, and generated worlds always round-trip and stay in range.
 """
 
+from itertools import pairwise
+
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
@@ -30,8 +32,8 @@ from mapwright._geometry import (
 )
 from mapwright._graph import astar, prim_mst
 from mapwright.config import _SPEC as WORLD_SPEC
-from mapwright.settlement import _FLAG_SPEC, _SPEC as SETTLEMENT_SPEC
-
+from mapwright.settlement import _FLAG_SPEC
+from mapwright.settlement import _SPEC as SETTLEMENT_SPEC
 
 # -- config clamping ----------------------------------------------------------
 
@@ -148,7 +150,7 @@ class TestGraphProperties:
                      lambda n: abs(n[0] - goal[0]) + abs(n[1] - goal[1]))
         if path:
             assert path[0] == start and path[-1] == goal
-            assert all(b in neighbors(a) for a, b in zip(path, path[1:]))
+            assert all(b in neighbors(a) for a, b in pairwise(path))
             assert all(p not in blocked for p in path)
 
 
@@ -179,7 +181,7 @@ class TestGenerationProperties:
         w, h = max(12, w % 60 + 12), max(12, h % 60 + 12)  # keep modest
         d = DungeonGenerator(SeededRNG(seed)).generate(w, h)
         for r in d.rooms:
-            assert 0 <= r.x and 0 <= r.y and r.x + r.w <= w and r.y + r.h <= h
+            assert r.x >= 0 and r.y >= 0 and r.x + r.w <= w and r.y + r.h <= h
         assert Dungeon.from_json(d.to_json()).ascii() == d.ascii()
 
     @given(st.integers(0, 10_000), _payload(SETTLEMENT_SPEC, _FLAG_SPEC))

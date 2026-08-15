@@ -38,7 +38,7 @@ class Road:
         return {"cells": list(self.cells)}
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Road":
+    def from_dict(cls, data: dict) -> Road:
         return cls(cells=[int(c) for c in data["cells"]])
 
     def to_json(self, **kwargs) -> str:
@@ -46,7 +46,7 @@ class Road:
         return _serde.to_json(self, **kwargs)
 
     @classmethod
-    def from_json(cls, text: str) -> "Road":
+    def from_json(cls, text: str) -> Road:
         return _serde.from_json(cls, text)
 
 

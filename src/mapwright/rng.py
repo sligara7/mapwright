@@ -27,7 +27,8 @@ from __future__ import annotations
 
 import hashlib
 import random
-from typing import Optional, Sequence, TypeVar
+from collections.abc import Sequence
+from typing import TypeVar
 
 import numpy as np
 
@@ -38,7 +39,7 @@ T = TypeVar("T")
 _SEED_MODULUS = 2**31
 
 
-def _coerce_seed(seed: Optional[int]) -> int:
+def _coerce_seed(seed: int | None) -> int:
     """Resolve an optional seed to a concrete, reproducible 31-bit integer.
 
     When ``seed`` is ``None`` we draw a fresh one from the OS entropy pool and
@@ -59,7 +60,7 @@ def _derive_seed(parent_seed: int, label: str) -> int:
     streams non-reproducible across runs.
     """
     digest = hashlib.blake2b(
-        f"{parent_seed}:{label}".encode("utf-8"), digest_size=8
+        f"{parent_seed}:{label}".encode(), digest_size=8
     ).digest()
     return int.from_bytes(digest, "big") % _SEED_MODULUS
 
@@ -72,16 +73,16 @@ class SeededRNG:
     the methods touch global RNG state.
     """
 
-    __slots__ = ("seed", "_rng", "_np")
+    __slots__ = ("_np", "_rng", "seed")
 
-    def __init__(self, seed: Optional[int] = None):
+    def __init__(self, seed: int | None = None):
         self.seed: int = _coerce_seed(seed)
         self._rng = random.Random(self.seed)
-        self._np: Optional[np.random.Generator] = None  # lazily constructed
+        self._np: np.random.Generator | None = None  # lazily constructed
 
     # -- sub-streams -----------------------------------------------------
 
-    def derive(self, label: str) -> "SeededRNG":
+    def derive(self, label: str) -> SeededRNG:
         """Return an independent child stream keyed by ``label``.
 
         Same parent seed + same label always yields the same child, but the
@@ -136,7 +137,7 @@ class SeededRNG:
     def choices(
         self,
         population: Sequence[T],
-        weights: Optional[Sequence[float]] = None,
+        weights: Sequence[float] | None = None,
         k: int = 1,
     ) -> list[T]:
         """Weighted sampling with replacement (stdlib semantics)."""

@@ -38,9 +38,10 @@ from __future__ import annotations
 
 import math
 from collections import deque
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, field
 from enum import IntEnum
-from typing import Callable, Sequence, Union
+from typing import Union
 
 import numpy as np
 
@@ -101,7 +102,7 @@ class TerrainCell:
         return d
 
     @classmethod
-    def from_dict(cls, data: dict) -> "TerrainCell":
+    def from_dict(cls, data: dict) -> TerrainCell:
         d = _serde.only_known(cls, data)
         if "biome" in d:
             d["biome"] = Biome(d["biome"])
@@ -119,7 +120,7 @@ class River:
         return {"cells": list(self.cells), "width": self.width}
 
     @classmethod
-    def from_dict(cls, data: dict) -> "River":
+    def from_dict(cls, data: dict) -> River:
         return cls(cells=[int(c) for c in data["cells"]], width=float(data["width"]))
 
 
@@ -134,7 +135,7 @@ class TerrainResult:
     rivers: list[River]
     sea_level: float
 
-    def elevation_at(self, cell: "TerrainCell") -> float:
+    def elevation_at(self, cell: TerrainCell) -> float:
         """Normalised height above sea level, 0..1 — handy for rasterisers."""
         return max(0.0, (cell.height - self.sea_level) / max(1e-6, 1 - self.sea_level))
 
@@ -158,7 +159,7 @@ class TerrainResult:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "TerrainResult":
+    def from_dict(cls, data: dict) -> TerrainResult:
         return cls(
             width=int(data["width"]),
             height=int(data["height"]),
@@ -173,7 +174,7 @@ class TerrainResult:
         return _serde.to_json(self, **kwargs)
 
     @classmethod
-    def from_json(cls, text: str) -> "TerrainResult":
+    def from_json(cls, text: str) -> TerrainResult:
         return _serde.from_json(cls, text)
 
 

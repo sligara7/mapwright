@@ -44,18 +44,18 @@ from __future__ import annotations
 
 import json
 import random
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from glob import glob
 from io import BytesIO
 from pathlib import Path
-from typing import Optional, Sequence
 
 from .terrain import Biome, TerrainResult, compute_cell_polygons
 
 
 def _require_pillow():
     try:
-        from PIL import Image, ImageDraw, ImageFont  # noqa: F401
+        from PIL import Image, ImageDraw, ImageFont
     except ImportError as exc:  # pragma: no cover - exercised only without Pillow
         raise ImportError(
             "AtlasRenderer needs Pillow. Install the optional extra: "
@@ -93,7 +93,7 @@ class ArtPack:
     # -- loading ---------------------------------------------------------
 
     @classmethod
-    def from_directory(cls, path: str | Path) -> "ArtPack":
+    def from_directory(cls, path: str | Path) -> ArtPack:
         """Load a pack from ``path``. Uses ``manifest.json`` if present, else
         auto-discovers slots from a conventional folder layout."""
         root = Path(path)
@@ -105,7 +105,7 @@ class ArtPack:
         return cls._auto_discover(root)
 
     @classmethod
-    def _from_manifest(cls, root: Path, data: dict) -> "ArtPack":
+    def _from_manifest(cls, root: Path, data: dict) -> ArtPack:
         colors = {**_DEFAULT_COLORS, **data.get("colors", {})}
         slots: dict[str, list[Symbol]] = {}
         for slot, spec in data.get("slots", {}).items():
@@ -119,7 +119,7 @@ class ArtPack:
         return cls(slots=slots, colors=colors, name=data.get("name", root.name))
 
     @classmethod
-    def _auto_discover(cls, root: Path) -> "ArtPack":
+    def _auto_discover(cls, root: Path) -> ArtPack:
         slots: dict[str, list[Symbol]] = {}
         for f in sorted(glob(str(root / "**" / "*.png"), recursive=True)):
             rel = str(Path(f).relative_to(root)).lower().replace("\\", "/")
@@ -134,7 +134,7 @@ class ArtPack:
 
     # -- access ----------------------------------------------------------
 
-    def pick(self, slot: str, rng: random.Random) -> Optional[Symbol]:
+    def pick(self, slot: str, rng: random.Random) -> Symbol | None:
         """A random variant for ``slot``. Falls back to the generic base slot and
         then to any sibling under the same base (``mountain.mid`` → ``mountain`` →
         ``mountain.young``/``…``), so coarse or partial packs still resolve."""
@@ -156,7 +156,7 @@ def _choice(variants: list[Symbol], rng: random.Random) -> Symbol:
     return variants[rng.randrange(len(variants))]
 
 
-def _classify(relpath: str, filename: str) -> Optional[str]:
+def _classify(relpath: str, filename: str) -> str | None:
     """Map a Nortantis-style relative path to an art slot (auto-discovery)."""
     if "mountain" in relpath:
         if "sharp" in relpath:
@@ -212,7 +212,7 @@ class AtlasRenderer:
         self.density = density  # 0..~2 — fraction of eligible cells that get a symbol
         self._img_cache: dict[str, object] = {}
 
-    def render(self, terrain: TerrainResult, markers: Optional[Sequence] = None, *,
+    def render(self, terrain: TerrainResult, markers: Sequence | None = None, *,
                land_age: float = 0.5, show_labels: bool = True) -> bytes:
         """Render to PNG bytes. ``land_age`` (the value the terrain was generated
         with) selects young/old mountain symbols; ``markers`` are stamped as
@@ -222,7 +222,7 @@ class AtlasRenderer:
         img.convert("RGB").save(buf, format="PNG")
         return buf.getvalue()
 
-    def render_image(self, terrain: TerrainResult, markers: Optional[Sequence] = None, *,
+    def render_image(self, terrain: TerrainResult, markers: Sequence | None = None, *,
                      land_age: float = 0.5, show_labels: bool = True):
         Image, ImageDraw, ImageFont = _require_pillow()
         s = self.scale
@@ -292,7 +292,7 @@ class AtlasRenderer:
 
     # -- internals -------------------------------------------------------
 
-    def _slot_for(self, cell, land_age: float) -> Optional[str]:
+    def _slot_for(self, cell, land_age: float) -> str | None:
         b = cell.biome
         if b in (Biome.MOUNTAIN, Biome.SNOW):
             return ("mountain.young" if land_age < 0.4
@@ -323,13 +323,13 @@ class AtlasRenderer:
             taken.append((x, y))
 
     def _stamp(self, img, slot: str, x: float, y: float, rng: random.Random,
-               width_override: Optional[float] = None) -> None:
+               width_override: float | None = None) -> None:
         sym = self.pack.pick(slot, rng)
         if sym is not None:
             self._stamp_symbol(img, sym, x, y, width_override)
 
     def _stamp_symbol(self, img, sym: Symbol, x: float, y: float,
-                      width_override: Optional[float] = None) -> None:
+                      width_override: float | None = None) -> None:
         Image, _, _ = _require_pillow()
         src = self._img_cache.get(sym.path)
         if src is None:

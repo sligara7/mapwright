@@ -11,9 +11,9 @@ from io import BytesIO
 import pytest
 
 pytest.importorskip("PIL")  # atlas rendering needs the optional [atlas] extra
-from PIL import Image  # noqa: E402
+from PIL import Image
 
-from mapwright import (  # noqa: E402
+from mapwright import (
     ArtPack,
     AtlasRenderer,
     Marker,
@@ -21,7 +21,7 @@ from mapwright import (  # noqa: E402
     SeededRNG,
     WorldMapConfig,
 )
-from mapwright.atlas_renderer import Symbol, _classify  # noqa: E402
+from mapwright.atlas_renderer import Symbol, _classify
 
 
 def _png(path, color=(40, 40, 40, 255), size=(48, 64)):

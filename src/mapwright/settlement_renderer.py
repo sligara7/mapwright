@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import math
 import xml.sax.saxutils as su
-from typing import Optional
 
 from ._geometry import clip_halfplane, polygon_centroid
 from .settlement import Settlement
@@ -74,8 +73,9 @@ class SettlementSVGRenderer:
         parts.append(self._poly_svg(town.footprint, fill=self._pal.footprint))
 
         # 3. Wards.
-        parts.append('<g stroke="%s" stroke-width="1" stroke-linejoin="round">'
-                     % self._pal.ward_stroke)
+        parts.append(
+            f'<g stroke="{self._pal.ward_stroke}" stroke-width="1" stroke-linejoin="round">'
+        )
         for ward in town.wards:
             if len(ward.polygon) < 3:
                 continue
@@ -114,7 +114,7 @@ class SettlementSVGRenderer:
     # -- helpers ---------------------------------------------------------
 
     def _poly_svg(
-        self, poly, *, fill: str, stroke: Optional[str] = None, stroke_width: float = 1.0
+        self, poly, *, fill: str, stroke: str | None = None, stroke_width: float = 1.0
     ) -> str:
         s = self.scale
         if len(poly) < 2:

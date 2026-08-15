@@ -22,8 +22,8 @@ seed-reproducible contract of the rest of mapwright.
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
 from . import _serde
 from .terrain import Biome, TerrainCell
@@ -120,7 +120,7 @@ class CellSummary:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "CellSummary":
+    def from_dict(cls, data: dict) -> CellSummary:
         return cls(
             dominant_biome=Biome(int(data["dominant_biome"])),
             temperature=float(data["temperature"]),
@@ -138,7 +138,7 @@ class CellSummary:
         return _serde.to_json(self, **kwargs)
 
     @classmethod
-    def from_json(cls, text: str) -> "CellSummary":
+    def from_json(cls, text: str) -> CellSummary:
         return _serde.from_json(cls, text)
 
 

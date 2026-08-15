@@ -80,8 +80,40 @@ target-version = "py310"
 # These four are what this project has actually been enforcing (ruff's historical
 # default): pyflakes plus the pycodestyle errors that catch real mistakes.
 #
-# Adopting the wider families (import sorting `I`, `RUF`, `SIM`, `UP`) is a deliberate
-# choice to make on its own, with the resulting fixes in their own commit — not a side
-# effect of a dependency resolving forward. See the follow-up commit that does exactly
-# that, deliberately, on top of this pin.
-select = ["E4", "E7", "E9", "F"]
+# The wider families were adopted DELIBERATELY on 2026-08-15, in their own commit on
+# top of the pin above — which is the order this rule demands, and the opposite of
+# having them arrive as a side effect of a dependency resolving forward.
+#
+# `PL` is deliberately NOT adopted: 259 findings, almost all magic-value-comparison in
+# generation code where the constants ARE the algorithm. That is its own decision.
+select = ["E4", "E7", "E9", "F", "I", "SIM", "UP", "RUF"]
+
+ignore = [
+    # Ambiguous-unicode in strings/docstrings/comments. This project's prose uses
+    # en/em dashes and arrows on purpose (→ in docstrings, — in comments); flagging
+    # them fights the house style rather than catching a defect. 35 findings, all
+    # cosmetic, none in code.
+    "RUF001", "RUF002", "RUF003",
+    # `Union[...]` -> `X | Y` on the three module-level type ALIASES (LabelSpec,
+    # TerrainField, ElevationHint). These are evaluated at RUNTIME rather than being
+    # annotations, and the support floor is 3.10. ruff itself declines to autofix
+    # them, which is the tell. The benefit is cosmetic and the risk lands on the
+    # lowest interpreter we claim to support, so this one is declined on purpose.
+    "UP007",
+    # The following three are DECLINED FOR THIS PROJECT SPECIFICALLY, not deferred
+    # out of laziness — each would edit generation or render code where deterministic
+    # output is the product, and none of them is a defect:
+    #
+    #   RUF046  `int(round(x))` -> `round(x)`. WRONG HERE. Several of these sit on
+    #           numpy scalars, and `round(np.float64)` returns a np.float64 while
+    #           `int(round(...))` returns a Python int. Dropping the cast changes the
+    #           TYPE flowing into geometry, dungeon and terrain, and this package's
+    #           central promise is that a seed reproduces byte-identical output.
+    #   RUF005  tuple/list concatenation -> unpacking, in the atlas renderer's colour
+    #           paths and one settlement ring splice. Equivalent, purely cosmetic, and
+    #           touching a hot loop for style is not a trade worth making.
+    #   RUF012  mutable class default in svg_renderer. A real observation, but fixing
+    #           it changes class semantics and deserves its own commit and its own
+    #           reasoning rather than riding along in a lint sweep.
+    "RUF046", "RUF005", "RUF012",
+]

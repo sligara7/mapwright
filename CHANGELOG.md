@@ -8,6 +8,36 @@ All notable changes to mapwright are documented here. The format follows
 `tests/test_api_contract.py`). While the version is `0.x`, minor versions may
 make breaking changes; these will always be noted here.
 
+## [Unreleased]
+
+### Changed
+- **Lint gate now states its own rule set.** `ruff` is pinned on both sides
+  (`>=0.5,<0.17`) and `[tool.ruff.lint].select` is explicit. Previously `ruff>=0.1`
+  was unbounded with no rule set declared, so CI adopted whatever ruff it resolved
+  that morning — which put `main` red across all four interpreters with 121 findings
+  in files nobody had touched. No source change was needed to go green; the pin and
+  the explicit set were the fix.
+- **Adopted the wider lint families** (`I`, `SIM`, `UP`, `RUF`) in a deliberate pass
+  on top of that pin, rather than letting them arrive as a dependency side effect:
+  import sorting, PEP 604 annotations (`Optional[X]` → `X | None`), unquoted
+  annotations, dead `typing` imports removed, unused `noqa` directives dropped, and
+  `__all__` / `__slots__` sorted. `PL` is not adopted; `RUF001-003` (ambiguous unicode
+  in prose), `UP007` (runtime-evaluated type aliases on the 3.10 floor), and
+  `RUF005/012/046` (generation and render paths) are declined with reasons stated in
+  `pyproject.toml`.
+
+### Fixed
+- `tests/test_packaging_contract.py` (new) asserts the numpy-only rule and the lint
+  gate, so both stop being conventions nobody checks.
+
+### Notes
+- **No behavioural change and no version bump.** The public API is unchanged (same 52
+  names in `__all__`, same signatures modulo equivalent PEP 604 spelling), and
+  deterministic output is **byte-identical**: a fixed-seed world renders to the same
+  SVG and JSON hashes before and after this change, verified against a detached
+  worktree of the previous commit. Per the project's reproducibility rule, a bump
+  would be required if that were not true.
+
 ## [0.28.0] — 2026-07-01
 
 Additive, non-breaking. A **forest-age** knob in the age/era vein (after

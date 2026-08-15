@@ -26,7 +26,7 @@ Point = tuple[float, float]
 
 # -- Voronoi cell construction ------------------------------------------------
 
-def jittered_grid_seeds(rng: "SeededRNG", width: int, height: int, n: int) -> np.ndarray:
+def jittered_grid_seeds(rng: SeededRNG, width: int, height: int, n: int) -> np.ndarray:
     """``n`` jittered-grid seed points over ``width×height`` — even coverage
     without clumping. Draws two ``rng.random()`` values (x then y jitter) per grid
     cell, row-major, so the seed stream is fixed for a given seed."""

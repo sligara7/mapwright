@@ -316,7 +316,7 @@ class SettlementConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "SettlementConfig":
+    def from_dict(cls, data: dict) -> SettlementConfig:
         """Build from a (possibly partial / noisy) mapping; unknown keys ignored."""
         return cls(**_serde.only_known(cls, data))
 
@@ -358,7 +358,7 @@ class SettlementConfig:
         }
 
     @classmethod
-    def preset(cls, name: str) -> "SettlementConfig":
+    def preset(cls, name: str) -> SettlementConfig:
         """A named starting point. Raises KeyError for an unknown preset."""
         return cls.from_dict(dict(SETTLEMENT_PRESETS[name]))
 
@@ -407,7 +407,7 @@ class Ward:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Ward":
+    def from_dict(cls, data: dict) -> Ward:
         return cls(
             id=int(data["id"]),
             polygon=[(float(x), float(y)) for x, y in data["polygon"]],
@@ -437,7 +437,7 @@ class Landmark:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Landmark":
+    def from_dict(cls, data: dict) -> Landmark:
         return cls(
             ward=int(data["ward"]),
             kind=data["kind"],
@@ -462,7 +462,7 @@ class Lot:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Lot":
+    def from_dict(cls, data: dict) -> Lot:
         return cls(
             id=int(data["id"]),
             polygon=[(float(x), float(y)) for x, y in data["polygon"]],
@@ -482,7 +482,7 @@ class Street:
         return {"path": [[x, y] for x, y in self.path], "kind": self.kind}
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Street":
+    def from_dict(cls, data: dict) -> Street:
         return cls(path=[(float(x), float(y)) for x, y in data["path"]],
                    kind=data["kind"])
 
@@ -505,7 +505,7 @@ class Wall:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Wall":
+    def from_dict(cls, data: dict) -> Wall:
         return cls(
             ring=[(float(x), float(y)) for x, y in data["ring"]],
             closed=bool(data["closed"]),
@@ -560,7 +560,7 @@ class Settlement:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Settlement":
+    def from_dict(cls, data: dict) -> Settlement:
         we = data.get("water_edge")
         return cls(
             width=int(data["width"]),
@@ -587,7 +587,7 @@ class Settlement:
         return _serde.to_json(self, **kwargs)
 
     @classmethod
-    def from_json(cls, text: str) -> "Settlement":
+    def from_json(cls, text: str) -> Settlement:
         return _serde.from_json(cls, text)
 
 
@@ -607,7 +607,7 @@ class SettlementGenerator:
         config: SettlementConfig | None = None,
         *,
         culture: str = "generic",
-        terrain: "TerrainField | None" = None,
+        terrain: TerrainField | None = None,
     ) -> Settlement:
         """Generate a town. ``config`` shapes it (population, walls, coast, outline);
         ``culture`` selects the namebase for the town and ward names.
@@ -1284,7 +1284,7 @@ class SettlementGenerator:
         coastal: bool,
         water_edge: tuple[Point, Point] | None,
         gates: list[Point],
-    ) -> "Wall | None":
+    ) -> Wall | None:
         """A wall ring around the footprint (towers at each corner). When coastal
         the ring is opened along the coast edge (a harbour, no wall over water).
         Gate gaps sit at the perimeter gates."""

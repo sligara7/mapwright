@@ -2,7 +2,6 @@
 
 import xml.etree.ElementTree as ET
 
-
 from mapwright.rng import SeededRNG
 from mapwright.svg_renderer import Marker, RegionalSVGRenderer
 from mapwright.terrain import RegionalTerrainGenerator, compute_cell_polygons

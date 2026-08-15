@@ -65,7 +65,7 @@ class Feature:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Feature":
+    def from_dict(cls, data: dict) -> Feature:
         c = data.get("centroid", [0.0, 0.0])
         return cls(
             id=int(data["id"]),
@@ -81,7 +81,7 @@ class Feature:
         return _serde.to_json(self, **kwargs)
 
     @classmethod
-    def from_json(cls, text: str) -> "Feature":
+    def from_json(cls, text: str) -> Feature:
         return _serde.from_json(cls, text)
 
 

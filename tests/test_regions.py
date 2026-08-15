@@ -2,9 +2,9 @@
 
 from mapwright import (
     Region,
-    RegionGenerator,
     RegionalSVGRenderer,
     RegionalTerrainGenerator,
+    RegionGenerator,
     SeededRNG,
     WorldMapConfig,
 )
@@ -22,7 +22,7 @@ def _regions(seed=7, count=None, **cfg):
 
 class TestRegions:
     def test_requested_count(self):
-        t, regions = _regions(count=5)
+        _t, regions = _regions(count=5)
         assert len(regions) == 5
         assert all(isinstance(r, Region) and r.name for r in regions)
 

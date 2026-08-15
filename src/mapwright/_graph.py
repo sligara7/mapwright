@@ -10,7 +10,7 @@ callers pass node counts / neighbour + cost callbacks, so the routines serve any
 from __future__ import annotations
 
 import heapq
-from typing import Callable, Hashable, Iterable
+from collections.abc import Callable, Hashable, Iterable
 
 
 def prim_mst(n: int, dist2: Callable[[int, int], float]) -> list[tuple[int, int]]:

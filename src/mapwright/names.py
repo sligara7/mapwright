@@ -29,7 +29,6 @@ Usage::
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Optional
 
 from .rng import SeededRNG
 
@@ -155,8 +154,8 @@ class MarkovNameGenerator:
     def generate(
         self,
         rng: SeededRNG,
-        min_len: Optional[int] = None,
-        max_len: Optional[int] = None,
+        min_len: int | None = None,
+        max_len: int | None = None,
         max_attempts: int = 40,
     ) -> str:
         """Walk the chain to produce a single capitalised name.

@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import math
 import xml.sax.saxutils as su
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
-from typing import Optional, Sequence
 
 from . import _serde
 from .terrain import Biome, TerrainCell, TerrainResult, compute_cell_polygons
@@ -43,7 +43,7 @@ class Marker:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Marker":
+    def from_dict(cls, data: dict) -> Marker:
         return cls(**_serde.only_known(cls, data))
 
     def to_json(self, **kwargs) -> str:
@@ -51,7 +51,7 @@ class Marker:
         return _serde.to_json(self, **kwargs)
 
     @classmethod
-    def from_json(cls, text: str) -> "Marker":
+    def from_json(cls, text: str) -> Marker:
         return _serde.from_json(cls, text)
 
 
@@ -68,9 +68,8 @@ _SETTLEMENT_RADIUS = {
 
 def _shade(base: tuple[int, int, int], brightness: float) -> str:
     """Apply a relief brightness multiplier to a colour → ``#rrggbb``."""
-    return "#%02x%02x%02x" % tuple(
-        max(0, min(255, int(round(ch * brightness)))) for ch in base
-    )
+    r, g, b = (max(0, min(255, int(round(ch * brightness)))) for ch in base)
+    return f"#{r:02x}{g:02x}{b:02x}"
 
 
 class RegionalSVGRenderer:
@@ -110,16 +109,16 @@ class RegionalSVGRenderer:
     def render(
         self,
         terrain: TerrainResult,
-        markers: Optional[Sequence[Marker]] = None,
+        markers: Sequence[Marker] | None = None,
         *,
-        roads: Optional[Sequence] = None,
-        regions: Optional[Sequence] = None,
-        features: Optional[Sequence] = None,
+        roads: Sequence | None = None,
+        regions: Sequence | None = None,
+        features: Sequence | None = None,
         show_relief: bool = True,
         show_labels: bool = True,
         smart_labels: bool = False,
         scale_bar: bool = False,
-        scale: Optional[float] = None,
+        scale: float | None = None,
         unit: str = "miles",
         compass: bool = False,
     ) -> str:

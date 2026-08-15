@@ -13,7 +13,8 @@ source of truth, so what you see is exactly what ``Dungeon.ascii()`` reports.
 from __future__ import annotations
 
 import xml.sax.saxutils as su
-from typing import Optional, Sequence, Union
+from collections.abc import Sequence
+from typing import Union
 
 from .dungeon import Dungeon
 from .themes import DEFAULT_THEME, Theme, get_theme
@@ -137,7 +138,7 @@ class DungeonSVGRenderer:
 
     # -- labels ----------------------------------------------------------
 
-    def _resolve_labels(self, dungeon: Dungeon, labels: LabelSpec) -> Optional[list[str]]:
+    def _resolve_labels(self, dungeon: Dungeon, labels: LabelSpec) -> list[str] | None:
         if labels is None or labels is False:
             return None
         if labels is True:

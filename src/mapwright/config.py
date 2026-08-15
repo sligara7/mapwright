@@ -132,7 +132,7 @@ class WorldMapConfig:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict) -> "WorldMapConfig":
+    def from_dict(cls, data: dict) -> WorldMapConfig:
         """Build from a (possibly partial / noisy) mapping; unknown keys ignored,
         wrong types/ranges coerced-and-clamped by ``__post_init__``."""
         return cls(**_serde.only_known(cls, data))
@@ -142,7 +142,7 @@ class WorldMapConfig:
         return _serde.to_json(self, **kwargs)
 
     @classmethod
-    def from_json(cls, text: str) -> "WorldMapConfig":
+    def from_json(cls, text: str) -> WorldMapConfig:
         return _serde.from_json(cls, text)
 
     @classmethod
@@ -177,7 +177,7 @@ class WorldMapConfig:
     # -- presets (also demonstrate the knobs & seed LLM choices) --------
 
     @classmethod
-    def preset(cls, name: str) -> "WorldMapConfig":
+    def preset(cls, name: str) -> WorldMapConfig:
         """A named starting point. Raises KeyError for an unknown preset."""
         return cls.from_dict(dict(PRESETS[name]))
 

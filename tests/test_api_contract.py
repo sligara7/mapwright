@@ -12,7 +12,6 @@ import mapwright
 from mapwright import WorldMapConfig
 from mapwright.config import _SPEC
 
-
 # The frozen public surface (mapwright.__all__). Adding is a minor bump;
 # removing/renaming is a breaking (major, pre-1.0: minor) change.
 EXPECTED_PUBLIC = {
@@ -153,12 +152,12 @@ class TestKeySignatures:
         params = inspect.signature(
             mapwright.RegionalTerrainGenerator.generate
         ).parameters
-        assert ["self", "width", "height", "config"] == list(params)[:4]
+        assert list(params)[:4] == ["self", "width", "height", "config"]
         assert params["config"].default is None
 
     def test_svg_render_signature(self):
         params = inspect.signature(mapwright.RegionalSVGRenderer.render).parameters
-        assert ["self", "terrain", "markers"] == list(params)[:3]
+        assert list(params)[:3] == ["self", "terrain", "markers"]
 
     def test_marker_fields(self):
         fields = {f.name for f in dataclasses.fields(mapwright.Marker)}
@@ -270,9 +269,18 @@ class TestToDictSchema:
 
     def _instances(self):
         from mapwright import (
-            SeededRNG, RegionalTerrainGenerator, DungeonGenerator, DungeonConfig,
-            SettlementGenerator, SettlementConfig, Marker, River, Road, Region,
-            Landmark, Feature,
+            DungeonConfig,
+            DungeonGenerator,
+            Feature,
+            Landmark,
+            Marker,
+            Region,
+            RegionalTerrainGenerator,
+            River,
+            Road,
+            SeededRNG,
+            SettlementConfig,
+            SettlementGenerator,
         )
         terrain = RegionalTerrainGenerator(SeededRNG(7)).generate(60, 45)
         dungeon = DungeonGenerator(SeededRNG(7)).generate(48, 40, DungeonConfig())

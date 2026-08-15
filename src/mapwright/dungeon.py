@@ -44,7 +44,7 @@ class Rect:
     def center(self) -> tuple[int, int]:
         return (self.cx, self.cy)
 
-    def intersects(self, other: "Rect", pad: int = 0) -> bool:
+    def intersects(self, other: Rect, pad: int = 0) -> bool:
         return (
             self.x - pad < other.x + other.w
             and self.x + self.w + pad > other.x
@@ -56,7 +56,7 @@ class Rect:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Rect":
+    def from_dict(cls, data: dict) -> Rect:
         return cls(**_serde.only_known(cls, data))
 
 
@@ -110,7 +110,7 @@ class Dungeon:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Dungeon":
+    def from_dict(cls, data: dict) -> Dungeon:
         return cls(
             width=int(data["width"]),
             height=int(data["height"]),
@@ -125,7 +125,7 @@ class Dungeon:
         return _serde.to_json(self, **kwargs)
 
     @classmethod
-    def from_json(cls, text: str) -> "Dungeon":
+    def from_json(cls, text: str) -> Dungeon:
         return _serde.from_json(cls, text)
 
 

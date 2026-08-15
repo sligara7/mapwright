@@ -98,7 +98,7 @@ class LabelPlacer:
         self,
         seed: int = 0,
         *,
-        avoid_points: "list | tuple" = (),
+        avoid_points: list | tuple = (),
         bounds: tuple[float, float] | None = None,
     ):
         self._rng = SeededRNG(seed).derive("labeling")

@@ -47,7 +47,7 @@ class TestSeeds:
 class TestVoronoiGrid:
     def test_shape_and_labels(self):
         seeds = jittered_grid_seeds(SeededRNG(3), 30, 20, 24)
-        cell_of, relaxed = voronoi_grid(30, 20, seeds, relax=2)
+        cell_of, _relaxed = voronoi_grid(30, 20, seeds, relax=2)
         assert cell_of.shape == (20, 30)
         assert cell_of.dtype == np.int32
         assert set(np.unique(cell_of)).issubset(set(range(len(seeds))))

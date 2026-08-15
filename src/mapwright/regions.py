@@ -36,7 +36,7 @@ class Region:
                 "cells": list(self.cells)}
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Region":
+    def from_dict(cls, data: dict) -> Region:
         return cls(
             id=int(data["id"]),
             name=data["name"],
@@ -49,7 +49,7 @@ class Region:
         return _serde.to_json(self, **kwargs)
 
     @classmethod
-    def from_json(cls, text: str) -> "Region":
+    def from_json(cls, text: str) -> Region:
         return _serde.from_json(cls, text)
 
 
