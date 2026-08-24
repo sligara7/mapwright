@@ -1,5 +1,18 @@
 # mapwright
 
+> ## ⛔ RETIRED FROM PUBLIC RELEASE — 2026-08-24
+>
+> **No further versions of `mapwright` will be published to PyPI.** This library is being
+> absorbed into the StoryFlow application that consumes it; it will stop being an
+> independently released package.
+>
+> **What this does and does not mean.** The versions already on PyPI (through **v0.28.0**)
+> remain published and remain MIT-licensed. MIT is irrevocable for what has already shipped —
+> if you depend on this package it keeps working, and you are free to fork it. Nothing is
+> being withdrawn or yanked. What ends is *new releases*.
+>
+> The PyPI publish workflow has been removed from this repository accordingly.
+
 > ⚠️ **Early development (v0.x, alpha).** The API is still moving and may change without
 > notice between versions. Usable today, but pin a version (e.g. `mapwright==0.10.0`) if
 > you depend on it.
